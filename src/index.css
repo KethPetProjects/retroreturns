@@ -1,0 +1,35 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy-950: #0a0e17;
+  --color-navy-900: #0f1420;
+  --color-navy-800: #161d2e;
+  --color-navy-700: #1e273b;
+  --color-navy-600: #2a3550;
+  --color-navy-500: #3b4a6b;
+  --color-gain-500: #22c55e;
+  --color-gain-400: #4ade80;
+  --color-loss-500: #ef4444;
+  --color-loss-400: #f87171;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  margin: 0;
+  background: var(--color-navy-950);
+  color: #e5e7eb;
+  font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  .input {
+    @apply rounded-md border border-navy-600 bg-navy-800 px-3 py-2 text-sm text-slate-100 outline-none transition-colors focus:border-sky-500;
+  }
+  .card {
+    @apply rounded-lg border border-navy-700 bg-navy-900;
+  }
+}
