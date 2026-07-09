@@ -8,7 +8,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { WholeLifeComparisonResult } from '../../utils/wholeLifeCalculations';
+import { MAX_COMPARISON_YEARS, type WholeLifeComparisonResult } from '../../utils/wholeLifeCalculations';
 import { formatDollars } from '../../utils/formatters';
 
 interface ComparisonChartProps {
@@ -16,7 +16,7 @@ interface ComparisonChartProps {
 }
 
 export function ComparisonChart({ result }: ComparisonChartProps) {
-  const { scaledRows, spComparison } = result;
+  const { scaledRows, spComparison, comparisonYears } = result;
 
   const chartData = scaledRows.map((row, i) => ({
     policyYear: row.year,
@@ -33,14 +33,20 @@ export function ComparisonChart({ result }: ComparisonChartProps) {
       </h2>
       <p className="mb-2 text-xs text-slate-500">
         Whole life cash value (left axis) and the S&amp;P comparison (right axis) are plotted on
-        separate scales — over a 55-year horizon the S&amp;P side compounds to many times the
-        whole life cash value, so a shared axis would flatten the WL lines to nearly nothing.
+        separate scales — over a long horizon the S&amp;P side compounds to many times the whole
+        life cash value, so a shared axis would flatten the WL lines to nearly nothing.
+      </p>
+      <p className="mb-2 text-xs text-slate-500">
+        Showing the first {comparisonYears} of {MAX_COMPARISON_YEARS} illustration years, matching
+        the Number of Years selected in the Accumulation section above.
+        {comparisonYears < MAX_COMPARISON_YEARS &&
+          ` Years ${comparisonYears + 1}-${MAX_COMPARISON_YEARS} aren't shown yet — they'll be relevant once the distribution-phase (Phase 3/4) comparison is built.`}
       </p>
       {spComparison.truncated && (
         <p className="mb-2 text-xs text-amber-400">
-          Real S&amp;P data only covers {spComparison.years.length} of the policy's 55 years from
-          this starting year — the S&amp;P lines stop early while the whole life lines continue for
-          the full illustration.
+          Real S&amp;P data only covers {spComparison.years.length} of these {comparisonYears} years
+          from this starting year — the S&amp;P lines stop early while the whole life lines continue
+          through year {comparisonYears}.
         </p>
       )}
       <div className="h-80 w-full sm:h-96">

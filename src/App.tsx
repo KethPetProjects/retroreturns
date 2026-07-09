@@ -43,6 +43,7 @@ function App() {
   const { result: wlResult } = useWholeLifeComparison({
     spStartingYear: inputs.startingYear,
     premiumScaleRatio,
+    comparisonYears: inputs.numberOfYears,
   });
 
   return (
@@ -99,6 +100,7 @@ function App() {
           onFrontLoadedPremiumChange={setFrontLoadedPremium}
           spDataTruncated={wlResult.spComparison.truncated}
           spYearsAvailable={wlResult.spComparison.years.length}
+          comparisonYears={wlResult.comparisonYears}
         />
 
         {!wlResult.isOriginalPremium && <PremiumScaleWarning />}

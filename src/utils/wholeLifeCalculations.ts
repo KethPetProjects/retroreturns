@@ -6,7 +6,13 @@ import {
   BASELINE_FEE_PCT,
 } from './calculations';
 import { scaleIllustration } from './premiumScaling';
-import { NON_APPUA_PREMIUM, type WholeLifeYearRow } from '../data/wholeLifeIllustration';
+import {
+  NON_APPUA_PREMIUM,
+  WHOLE_LIFE_ILLUSTRATION,
+  type WholeLifeYearRow,
+} from '../data/wholeLifeIllustration';
+
+export const MAX_COMPARISON_YEARS = WHOLE_LIFE_ILLUSTRATION.length;
 
 export type CashValueTrack = 'guaranteed' | 'nonGuaranteed';
 
@@ -106,6 +112,14 @@ export function computeOpportunityCost(
 export interface WholeLifeComparisonInputs {
   spStartingYear: number;
   premiumScaleRatio: number; // 1 = original $20,000/$3,931 illustration
+  /**
+   * Limits the comparison to the first N years of the 55-year illustration
+   * (e.g. matching Phase 1's Number of Years), so the accumulation-phase
+   * comparison doesn't run further than what's actually being compared.
+   * Years beyond this are simply not included yet — not lost — pending
+   * Phase 3/4's distribution-phase modeling. Clamped to [1, 55].
+   */
+  comparisonYears: number;
 }
 
 export interface WholeLifeComparisonResult {
@@ -117,16 +131,19 @@ export interface WholeLifeComparisonResult {
   spComparison: SpScheduleComparisonResult;
   opportunityCost: SpScheduleComparisonResult;
   isOriginalPremium: boolean;
+  comparisonYears: number;
 }
 
 export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): WholeLifeComparisonResult {
   const { spStartingYear, premiumScaleRatio } = inputs;
-  const scaledRows = scaleIllustration(premiumScaleRatio);
+  const comparisonYears = Math.min(Math.max(1, Math.trunc(inputs.comparisonYears)), MAX_COMPARISON_YEARS);
+
+  const scaledRows = scaleIllustration(premiumScaleRatio).slice(0, comparisonYears);
   const finalYearIndex = scaledRows.length;
 
   // IRR and break-even are scale-invariant (see computeWholeLifeIRR doc comment)
   // — compute from the unscaled ratio-1 illustration for a stable source of truth.
-  const unscaledRows = scaleIllustration(1);
+  const unscaledRows = scaleIllustration(1).slice(0, comparisonYears);
   const guaranteedIrr = computeWholeLifeIRR(unscaledRows, finalYearIndex, 'guaranteed');
   const nonGuaranteedIrr = computeWholeLifeIRR(unscaledRows, finalYearIndex, 'nonGuaranteed');
   const guaranteedBreakEvenYear = computeBreakEvenYear(unscaledRows, 'guaranteed');
@@ -147,5 +164,6 @@ export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): Whole
     spComparison,
     opportunityCost,
     isOriginalPremium: premiumScaleRatio === 1,
+    comparisonYears,
   };
 }

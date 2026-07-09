@@ -29,7 +29,7 @@ export function useWholeLifeComparison(inputs: WholeLifeComparisonInputs): UseWh
     }, DEBOUNCE_MS);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputs.spStartingYear, inputs.premiumScaleRatio]);
+  }, [inputs.spStartingYear, inputs.premiumScaleRatio, inputs.comparisonYears]);
 
   const result = useMemo(() => runWholeLifeComparison(debounced), [debounced]);
 

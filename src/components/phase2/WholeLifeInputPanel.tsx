@@ -7,6 +7,7 @@ interface WholeLifeInputPanelProps {
   onFrontLoadedPremiumChange: (value: number) => void;
   spDataTruncated: boolean;
   spYearsAvailable: number;
+  comparisonYears: number;
 }
 
 export function WholeLifeInputPanel({
@@ -15,6 +16,7 @@ export function WholeLifeInputPanel({
   onFrontLoadedPremiumChange,
   spDataTruncated,
   spYearsAvailable,
+  comparisonYears,
 }: WholeLifeInputPanelProps) {
   const isOriginal = frontLoadedPremium === ORIGINAL_FRONT_LOADED_PREMIUM;
 
@@ -61,12 +63,13 @@ export function WholeLifeInputPanel({
           <div className="input flex items-center text-slate-300">{spStartingYear}</div>
           <span className="text-xs text-slate-500">
             Locked to the Accumulation section's Starting Year above, so both sides of this
-            comparison use the same real market history.{' '}
+            comparison use the same real market history, over the same {comparisonYears}-year
+            window (also from the Accumulation section's Number of Years).{' '}
             {spDataTruncated && (
               <span className="text-amber-400">
-                Real S&amp;P data only covers {spYearsAvailable} of the policy's 55 years from{' '}
-                {spStartingYear} — the S&amp;P lines on the chart stop there while the whole life
-                lines continue for the full illustration.
+                Real S&amp;P data only covers {spYearsAvailable} of those {comparisonYears} years
+                from {spStartingYear} — the S&amp;P lines on the chart stop there while the whole
+                life lines continue through year {comparisonYears}.
               </span>
             )}
           </span>

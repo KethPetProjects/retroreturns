@@ -123,8 +123,8 @@ describe('computeOpportunityCost (Section 12.9)', () => {
 
 describe('runWholeLifeComparison (integration)', () => {
   it('keeps IRR stable across the original and a scaled premium', () => {
-    const original = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1 });
-    const scaled = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 0.5 });
+    const original = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55 });
+    const scaled = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 0.5, comparisonYears: 55 });
 
     expect(original.isOriginalPremium).toBe(true);
     expect(scaled.isOriginalPremium).toBe(false);
@@ -133,9 +133,25 @@ describe('runWholeLifeComparison (integration)', () => {
   });
 
   it('produces a distinct opportunity-cost result from the main S&P comparison', () => {
-    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1 });
+    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55 });
     const finalOppCost = result.opportunityCost.actualBalances.at(-1)!;
     const finalMainComparison = result.spComparison.actualBalances.at(-1)!;
     expect(finalOppCost).toBeLessThan(finalMainComparison); // non-APPUA-only stream is a small slice of total premium
+  });
+
+  it('limits the comparison to comparisonYears, ignoring later illustration years', () => {
+    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30 });
+    expect(result.scaledRows).toHaveLength(30);
+    expect(result.comparisonYears).toBe(30);
+    expect(result.scaledRows.at(-1)!.year).toBe(30);
+    // IRR/break-even should be computed through year 30, not year 55
+    expect(result.nonGuaranteedIrr).not.toBeNull();
+  });
+
+  it('clamps comparisonYears to [1, 55]', () => {
+    const tooMany = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 200 });
+    expect(tooMany.comparisonYears).toBe(55);
+    const tooFew = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 0 });
+    expect(tooFew.comparisonYears).toBe(1);
   });
 });
