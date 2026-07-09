@@ -14,13 +14,8 @@ import { CaveatsPanel } from './components/phase2/CaveatsPanel';
 import { useHistoricalReturns } from './hooks/useHistoricalReturns';
 import { useSimulation } from './hooks/useSimulation';
 import { useWholeLifeComparison } from './hooks/useWholeLifeComparison';
-import {
-  ORIGINAL_FRONT_LOADED_PREMIUM,
-  WHOLE_LIFE_ILLUSTRATION,
-  NON_APPUA_PREMIUM,
-} from './data/wholeLifeIllustration';
+import { ORIGINAL_FRONT_LOADED_PREMIUM, NON_APPUA_PREMIUM } from './data/wholeLifeIllustration';
 import { scaleRatioFromFrontLoadedPremium } from './utils/premiumScaling';
-import { SP500_DATA_MAX_YEAR } from './data/sp500Fallback';
 import type { SimulationInputs } from './types';
 
 const currentYear = new Date().getFullYear();
@@ -34,22 +29,21 @@ const DEFAULT_INPUTS: SimulationInputs = {
   taxRatePct: 0,
 };
 
-const WL_ILLUSTRATION_YEARS = WHOLE_LIFE_ILLUSTRATION.length;
-const DEFAULT_WL_SP_STARTING_YEAR = 1970;
-
 function App() {
   const [inputs, setInputs] = useState<SimulationInputs>(DEFAULT_INPUTS);
   const historicalReturns = useHistoricalReturns();
   const { result, validationErrors } = useSimulation(inputs);
 
   const [frontLoadedPremium, setFrontLoadedPremium] = useState(ORIGINAL_FRONT_LOADED_PREMIUM);
-  const [wlSpStartingYear, setWlSpStartingYear] = useState(DEFAULT_WL_SP_STARTING_YEAR);
   const premiumScaleRatio = scaleRatioFromFrontLoadedPremium(frontLoadedPremium);
+  // Locked to Phase 1's own Starting Year — the WL comparison's S&P side must
+  // use the same real market history the user chose for the Accumulation
+  // section, not an independently-set year (see App.tsx history for the
+  // earlier, confusing two-starting-years version).
   const { result: wlResult } = useWholeLifeComparison({
-    spStartingYear: wlSpStartingYear,
+    spStartingYear: inputs.startingYear,
     premiumScaleRatio,
   });
-  const maxWlStartingYearForFullWindow = SP500_DATA_MAX_YEAR - WL_ILLUSTRATION_YEARS + 1;
 
   return (
     <div className="min-h-screen bg-navy-950">
@@ -101,11 +95,10 @@ function App() {
 
         <WholeLifeInputPanel
           frontLoadedPremium={frontLoadedPremium}
-          spStartingYear={wlSpStartingYear}
+          spStartingYear={inputs.startingYear}
           onFrontLoadedPremiumChange={setFrontLoadedPremium}
-          onSpStartingYearChange={setWlSpStartingYear}
-          minYear={historicalReturns.minYear}
-          maxStartingYearForFullWindow={maxWlStartingYearForFullWindow}
+          spDataTruncated={wlResult.spComparison.truncated}
+          spYearsAvailable={wlResult.spComparison.years.length}
         />
 
         {!wlResult.isOriginalPremium && <PremiumScaleWarning />}

@@ -5,18 +5,16 @@ interface WholeLifeInputPanelProps {
   frontLoadedPremium: number;
   spStartingYear: number;
   onFrontLoadedPremiumChange: (value: number) => void;
-  onSpStartingYearChange: (value: number) => void;
-  minYear: number;
-  maxStartingYearForFullWindow: number;
+  spDataTruncated: boolean;
+  spYearsAvailable: number;
 }
 
 export function WholeLifeInputPanel({
   frontLoadedPremium,
   spStartingYear,
   onFrontLoadedPremiumChange,
-  onSpStartingYearChange,
-  minYear,
-  maxStartingYearForFullWindow,
+  spDataTruncated,
+  spYearsAvailable,
 }: WholeLifeInputPanelProps) {
   const isOriginal = frontLoadedPremium === ORIGINAL_FRONT_LOADED_PREMIUM;
 
@@ -56,23 +54,23 @@ export function WholeLifeInputPanel({
           </span>
         </label>
 
-        <label className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1">
           <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
             S&amp;P 500 Comparison Starting Year
           </span>
-          <input
-            type="number"
-            className="input"
-            min={minYear}
-            max={maxStartingYearForFullWindow}
-            value={spStartingYear}
-            onChange={(e) => onSpStartingYearChange(Number(e.target.value))}
-          />
+          <div className="input flex items-center text-slate-300">{spStartingYear}</div>
           <span className="text-xs text-slate-500">
-            Real historical S&amp;P sequence, same 55-year funding schedule. Use{' '}
-            {maxStartingYearForFullWindow} or earlier for a full 55-year window.
+            Locked to the Accumulation section's Starting Year above, so both sides of this
+            comparison use the same real market history.{' '}
+            {spDataTruncated && (
+              <span className="text-amber-400">
+                Real S&amp;P data only covers {spYearsAvailable} of the policy's 55 years from{' '}
+                {spStartingYear} — the S&amp;P lines on the chart stop there while the whole life
+                lines continue for the full illustration.
+              </span>
+            )}
           </span>
-        </label>
+        </div>
 
         <div className="flex flex-col justify-end text-xs text-slate-500">
           Scale ratio: {scaleRatioFromFrontLoadedPremium(frontLoadedPremium).toFixed(3)}×

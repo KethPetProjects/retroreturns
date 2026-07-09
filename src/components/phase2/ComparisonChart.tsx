@@ -31,10 +31,16 @@ export function ComparisonChart({ result }: ComparisonChartProps) {
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
         Whole Life vs. S&amp;P 500 — Same Funding Schedule
       </h2>
+      <p className="mb-2 text-xs text-slate-500">
+        Whole life cash value (left axis) and the S&amp;P comparison (right axis) are plotted on
+        separate scales — over a 55-year horizon the S&amp;P side compounds to many times the
+        whole life cash value, so a shared axis would flatten the WL lines to nearly nothing.
+      </p>
       {spComparison.truncated && (
         <p className="mb-2 text-xs text-amber-400">
-          The S&amp;P comparison's starting year runs past the end of available historical data —
-          those two lines stop early while the whole life lines continue for the full illustration.
+          Real S&amp;P data only covers {spComparison.years.length} of the policy's 55 years from
+          this starting year — the S&amp;P lines stop early while the whole life lines continue for
+          the full illustration.
         </p>
       )}
       <div className="h-80 w-full sm:h-96">
@@ -48,14 +54,26 @@ export function ComparisonChart({ result }: ComparisonChartProps) {
               label={{ value: 'Policy Year', position: 'insideBottom', offset: -2, fill: '#64748b' }}
             />
             <YAxis
-              stroke="#64748b"
+              yAxisId="wl"
+              stroke="#4ade80"
               fontSize={12}
               tickFormatter={(v) => formatDollars(v, false)}
               width={80}
+              label={{ value: 'Whole Life Cash Value', angle: -90, position: 'insideLeft', fill: '#4ade80', fontSize: 11 }}
+            />
+            <YAxis
+              yAxisId="sp"
+              orientation="right"
+              stroke="#38bdf8"
+              fontSize={12}
+              tickFormatter={(v) => formatDollars(v, false)}
+              width={90}
+              label={{ value: 'S&P Comparison', angle: 90, position: 'insideRight', fill: '#38bdf8', fontSize: 11 }}
             />
             <Tooltip content={<ComparisonTooltip />} />
             <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
             <Line
+              yAxisId="wl"
               type="monotone"
               dataKey="nonGuaranteedCV"
               name="WL Non-Guaranteed Cash Value"
@@ -64,6 +82,7 @@ export function ComparisonChart({ result }: ComparisonChartProps) {
               dot={false}
             />
             <Line
+              yAxisId="wl"
               type="monotone"
               dataKey="guaranteedCV"
               name="WL Guaranteed Cash Value"
@@ -73,6 +92,7 @@ export function ComparisonChart({ result }: ComparisonChartProps) {
               dot={false}
             />
             <Line
+              yAxisId="sp"
               type="monotone"
               dataKey="spActual"
               name="S&P Actual (same schedule)"
@@ -81,6 +101,7 @@ export function ComparisonChart({ result }: ComparisonChartProps) {
               dot={false}
             />
             <Line
+              yAxisId="sp"
               type="monotone"
               dataKey="spAverage"
               name="S&P Average-Rate"
