@@ -1,3 +1,4 @@
+import { NumberField } from '../NumberField';
 import { ORIGINAL_FRONT_LOADED_PREMIUM } from '../../data/wholeLifeIllustration';
 import { scaleRatioFromFrontLoadedPremium } from '../../utils/premiumScaling';
 
@@ -42,13 +43,12 @@ export function WholeLifeInputPanel({
           <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
             Annual Premium (Years 1-7)
           </span>
-          <input
-            type="number"
+          <NumberField
             className="input"
             min={1000}
             step={1000}
             value={frontLoadedPremium}
-            onChange={(e) => onFrontLoadedPremiumChange(Number(e.target.value))}
+            onChange={onFrontLoadedPremiumChange}
           />
           <span className="text-xs text-slate-500">
             Original illustration: {ORIGINAL_FRONT_LOADED_PREMIUM.toLocaleString()}/yr. Sustaining-period

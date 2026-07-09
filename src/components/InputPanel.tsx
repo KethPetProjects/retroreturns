@@ -1,3 +1,4 @@
+import { NumberField } from './NumberField';
 import type { SimulationInputs } from '../types';
 import type { ValidationError } from '../utils/calculations';
 
@@ -22,69 +23,65 @@ export function InputPanel({ inputs, onChange, validationErrors, minYear, maxYea
     <section className="rounded-lg border border-navy-700 bg-navy-900 p-4 sm:p-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <Field label="Starting Year" error={fieldError(validationErrors, 'startingYear')}>
-          <input
-            type="number"
+          <NumberField
             className="input"
             min={minYear}
             max={maxYear}
             value={inputs.startingYear}
-            onChange={(e) => update('startingYear', Number(e.target.value))}
+            onChange={(v) => update('startingYear', v)}
           />
         </Field>
 
         <Field label="Number of Years" error={fieldError(validationErrors, 'numberOfYears')}>
-          <input
-            type="number"
+          <NumberField
             className="input"
             min={1}
             value={inputs.numberOfYears}
-            onChange={(e) => update('numberOfYears', Number(e.target.value))}
+            onChange={(v) => update('numberOfYears', v)}
           />
         </Field>
 
         <Field label="Starting Balance" error={fieldError(validationErrors, 'startingBalance')}>
-          <input
-            type="number"
+          <NumberField
             className="input"
             min={0}
             step={100}
             value={inputs.startingBalance}
-            onChange={(e) => update('startingBalance', Number(e.target.value))}
+            onChange={(v) => update('startingBalance', v)}
           />
         </Field>
 
         <Field label="Annual Contribution" error={fieldError(validationErrors, 'annualContribution')}>
-          <input
-            type="number"
+          <NumberField
             className="input"
             min={0}
             step={100}
             value={inputs.annualContribution}
-            onChange={(e) => update('annualContribution', Number(e.target.value))}
+            onChange={(v) => update('annualContribution', v)}
           />
         </Field>
 
         <Field label="Management Fee (%)" error={fieldError(validationErrors, 'managementFeePct')}>
-          <input
-            type="number"
+          <NumberField
             className="input"
             min={0}
             max={2}
             step={0.01}
+            decimal
             value={inputs.managementFeePct * 100}
-            onChange={(e) => update('managementFeePct', Number(e.target.value) / 100)}
+            onChange={(v) => update('managementFeePct', v / 100)}
           />
         </Field>
 
         <Field label="Tax Rate (%)" error={fieldError(validationErrors, 'taxRatePct')}>
-          <input
-            type="number"
+          <NumberField
             className="input"
             min={0}
             max={50}
             step={0.5}
+            decimal
             value={inputs.taxRatePct * 100}
-            onChange={(e) => update('taxRatePct', Number(e.target.value) / 100)}
+            onChange={(v) => update('taxRatePct', v / 100)}
           />
         </Field>
       </div>
