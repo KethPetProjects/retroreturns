@@ -86,33 +86,28 @@ npm test
 ## Deployment — Azure Static Web Apps
 
 This app is fully client-side (no backend), so Azure Static Web Apps' free tier is a good fit.
-Deployment is via GitHub Actions, triggered on every push to `main`.
+Deployment is via a GitHub Actions workflow that Azure generates automatically when you connect
+the Static Web App resource directly to this GitHub repo.
 
-### 1. Create the Azure Static Web App resource
+### 1. Create the Azure Static Web App resource, connected to GitHub
 
 1. In the [Azure Portal](https://portal.azure.com), create a new **Static Web App** resource.
 2. Choose the **Free** plan.
-3. Under **Deployment details**, connect it to this GitHub repository and the `main` branch.
-   - If you let Azure's GitHub-connected setup flow generate the workflow file for you, it may
-     create its own `.github/workflows/azure-static-web-apps-*.yml` file in the repo. If that
-     happens, either delete the workflow already committed here
-     (`.github/workflows/azure-static-web-apps.yml`) or delete Azure's auto-generated one — having
-     both active will cause duplicate/conflicting deployments.
-   - Build presets: framework preset **Custom**, app location `/`, output location `dist`. (This
-     matches the workflow file already committed here, which runs the build itself and uploads
-     `/dist` — Azure doesn't need to run its own build step.)
+3. Under **Deployment details**, set **Source** to **GitHub**, sign in/authorize if prompted, and
+   select this repository and the `main` branch.
+4. Build presets: **React** (or **Custom** if React isn't offered as a Vite option), app location
+   `/`, output location `dist`, api location left blank (no backend).
+5. Finish creation. Azure will:
+   - Install its GitHub App on this repo
+   - Commit a workflow file to `.github/workflows/` (e.g. `azure-static-web-apps-<name>.yml`)
+   - Auto-create a deployment token as a GitHub repo secret (named
+     `AZURE_STATIC_WEB_APPS_API_TOKEN_<generated-suffix>`) — no manual token copy-paste needed
+   - Trigger an initial deployment run automatically
 
-### 2. Get the deployment token and add it as a GitHub secret
+Pull the auto-generated workflow file down locally (`git pull`) after this step, since Azure
+commits it directly to the repo.
 
-1. In the new Static Web App resource, go to **Overview → Manage deployment token** and copy the
-   token.
-2. In this GitHub repo, go to **Settings → Secrets and variables → Actions → New repository
-   secret**.
-3. Name it `AZURE_STATIC_WEB_APPS_API_TOKEN` and paste the token as the value.
-
-This exact secret name is what `.github/workflows/azure-static-web-apps.yml` expects.
-
-### 3. (Optional) Set an API key as an Azure Application Setting
+### 2. (Optional) Set an API key as an Azure Application Setting
 
 Not required for this build (no live API is used). If a live data source is added later and needs
 an API key in production, set it in **Static Web App resource → Configuration → Application
@@ -120,16 +115,15 @@ settings** (e.g. `VITE_ALPHA_VANTAGE_KEY`). Note: since this is a client-side-on
 `VITE_*` variable is bundled into the built JavaScript and visible to anyone who views the site —
 this is an accepted tradeoff for a free-tier API key with generous rate limits, not a true secret.
 
-### 4. Deploy
+### 3. Deploy
 
-Once the secret is set, push to `main`:
+Every push to `main` after the initial setup triggers the workflow automatically:
 
 ```bash
 git push origin main
 ```
 
-GitHub Actions will install dependencies, run `npm run build`, and deploy `/dist` to Azure Static
-Web Apps automatically. Check the **Actions** tab in GitHub to watch the deployment.
+Check the **Actions** tab in GitHub to watch the deployment.
 
 Your app will be live at:
 
