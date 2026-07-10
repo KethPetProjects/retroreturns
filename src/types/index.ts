@@ -55,3 +55,14 @@ export interface ContributionScheduleEntry {
   yearIndex: number; // 1..N
   amount: number;
 }
+
+export interface DistributionInputs {
+  currentAge: number;
+  stopWorkingAge: number;
+  planThroughAge: number;
+  annualExpense: number; // net (take-home) year-1 spend target
+  inflationRatePct: number;
+  standardDeduction: number; // year-1 dollars, grows with inflation
+  taxRatePct: number;
+  managementFeePct: number;
+}

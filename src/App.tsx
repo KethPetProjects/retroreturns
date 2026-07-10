@@ -5,18 +5,23 @@ import { ResultsTable } from './components/ResultsTable';
 import { SummarySection } from './components/SummarySection';
 import { ErrorState } from './components/ErrorState';
 import { DataSourceBanner } from './components/DataSourceBanner';
+import { TabBar } from './components/TabBar';
 import { WholeLifeInputPanel } from './components/phase2/WholeLifeInputPanel';
 import { PremiumScaleWarning } from './components/phase2/PremiumScaleWarning';
 import { ComparisonChart } from './components/phase2/ComparisonChart';
 import { WholeLifeSummary } from './components/phase2/WholeLifeSummary';
 import { OpportunityCostCallout } from './components/phase2/OpportunityCostCallout';
 import { CaveatsPanel } from './components/phase2/CaveatsPanel';
+import { DistributionInputPanel } from './components/phase3/DistributionInputPanel';
+import { DistributionChart } from './components/phase3/DistributionChart';
+import { DistributionSummary } from './components/phase3/DistributionSummary';
 import { useHistoricalReturns } from './hooks/useHistoricalReturns';
 import { useSimulation } from './hooks/useSimulation';
 import { useWholeLifeComparison } from './hooks/useWholeLifeComparison';
+import { useDistribution } from './hooks/useDistribution';
 import { ORIGINAL_FRONT_LOADED_PREMIUM, NON_APPUA_PREMIUM } from './data/wholeLifeIllustration';
 import { scaleRatioFromFrontLoadedPremium } from './utils/premiumScaling';
-import type { SimulationInputs } from './types';
+import type { SimulationInputs, DistributionInputs } from './types';
 
 const currentYear = new Date().getFullYear();
 
@@ -29,7 +34,19 @@ const DEFAULT_INPUTS: SimulationInputs = {
   taxRatePct: 0,
 };
 
+const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
+  currentAge: 35,
+  stopWorkingAge: 65,
+  planThroughAge: 95,
+  annualExpense: 80000,
+  inflationRatePct: 0.03,
+  standardDeduction: 15000,
+  taxRatePct: 0.15,
+  managementFeePct: 0.0003,
+};
+
 function App() {
+  const [activeTab, setActiveTab] = useState('accumulation');
   const [inputs, setInputs] = useState<SimulationInputs>(DEFAULT_INPUTS);
   const historicalReturns = useHistoricalReturns();
   const { result, validationErrors } = useSimulation(inputs);
@@ -48,6 +65,20 @@ function App() {
     taxRatePct: inputs.taxRatePct,
   });
 
+  const [distributionInputs, setDistributionInputs] = useState<DistributionInputs>(DEFAULT_DISTRIBUTION_INPUTS);
+  // Carries over Phase 1's PRE-TAX ending balances (the last row's actualBalance/
+  // averageBalance, not finalActualValue/finalAverageValue) — Phase 3 applies its
+  // own withdrawal-based tax treatment year by year, so starting from an
+  // already-taxed lump sum would double-tax the money.
+  const finalRow = result?.rows.at(-1);
+  const { result: distributionResult, validationErrors: distributionValidationErrors } = useDistribution({
+    distributionInputs,
+    startingBalanceActual: finalRow?.actualBalance ?? 0,
+    startingBalanceAverage: finalRow?.averageBalance ?? 0,
+    averageRateUsed: result?.averageRateUsed ?? 0,
+    phase1: { startingYear: inputs.startingYear, numberOfYears: inputs.numberOfYears },
+  });
+
   return (
     <div className="min-h-screen bg-navy-950">
       <header className="border-b border-navy-800 bg-navy-900/60 px-4 py-6 sm:px-8">
@@ -57,6 +88,17 @@ function App() {
         </p>
       </header>
 
+      <div className="mx-auto max-w-7xl px-4 pt-4 sm:px-8">
+        <TabBar
+          tabs={[
+            { id: 'accumulation', label: 'Accumulation' },
+            { id: 'distribution', label: 'Distribution' },
+          ]}
+          activeTab={activeTab}
+          onChange={setActiveTab}
+        />
+      </div>
+
       <main className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-6 sm:px-8">
         <DataSourceBanner
           source={historicalReturns.source}
@@ -64,57 +106,109 @@ function App() {
           maxYear={historicalReturns.maxYear}
         />
 
-        <h2 className="text-lg font-semibold text-slate-200">Accumulation: S&amp;P 500 Actual vs. Average</h2>
-
-        <InputPanel
-          inputs={inputs}
-          onChange={setInputs}
-          validationErrors={validationErrors}
-          minYear={historicalReturns.minYear}
-          maxYear={currentYear - 1}
-        />
-
-        {validationErrors.length > 0 && (
-          <ErrorState message={validationErrors.map((e) => e.message).join(' ')} />
-        )}
-
-        {result && (
+        {activeTab === 'accumulation' && (
           <>
-            <GrowthChart rows={result.rows} />
-            <ResultsTable rows={result.rows} />
-            <SummarySection result={result} />
+            <h2 className="text-lg font-semibold text-slate-200">
+              Accumulation: S&amp;P 500 Actual vs. Average
+            </h2>
+
+            <InputPanel
+              inputs={inputs}
+              onChange={setInputs}
+              validationErrors={validationErrors}
+              minYear={historicalReturns.minYear}
+              maxYear={currentYear - 1}
+            />
+
+            {validationErrors.length > 0 && (
+              <ErrorState message={validationErrors.map((e) => e.message).join(' ')} />
+            )}
+
+            {result && (
+              <>
+                <GrowthChart rows={result.rows} />
+                <ResultsTable rows={result.rows} />
+                <SummarySection result={result} />
+              </>
+            )}
+
+            <hr className="my-4 border-navy-800" />
+
+            <h2 className="text-lg font-semibold text-slate-200">
+              Whole Life Comparison: Penn Mutual Reference Illustration
+            </h2>
+            <p className="-mt-4 text-xs text-slate-500">
+              Reference illustration — Penn Mutual, issue age 44, non-guaranteed values are not
+              guaranteed and assume continuation of the current dividend scale.
+            </p>
+
+            <WholeLifeInputPanel
+              frontLoadedPremium={frontLoadedPremium}
+              spStartingYear={inputs.startingYear}
+              onFrontLoadedPremiumChange={setFrontLoadedPremium}
+              spDataTruncated={wlResult.spComparison.truncated}
+              spYearsAvailable={wlResult.spComparison.years.length}
+              comparisonYears={wlResult.comparisonYears}
+              spFeePct={inputs.managementFeePct}
+            />
+
+            {!wlResult.isOriginalPremium && <PremiumScaleWarning />}
+
+            <ComparisonChart result={wlResult} />
+            <WholeLifeSummary result={wlResult} />
+            <OpportunityCostCallout
+              result={wlResult}
+              nonAppuaPremiumPerYear={NON_APPUA_PREMIUM * premiumScaleRatio}
+            />
+            <CaveatsPanel />
           </>
         )}
 
-        <hr className="my-4 border-navy-800" />
+        {activeTab === 'distribution' && (
+          <>
+            <h2 className="text-lg font-semibold text-slate-200">
+              Distribution: How Long Will It Last?
+            </h2>
+            <p className="-mt-4 text-xs text-slate-500">
+              Starting balances carry over automatically from the Accumulation tab's ending
+              balances (pre-tax) — switch to that tab to change the accumulation assumptions.
+            </p>
 
-        <h2 className="text-lg font-semibold text-slate-200">
-          Whole Life Comparison: Penn Mutual Reference Illustration
-        </h2>
-        <p className="-mt-4 text-xs text-slate-500">
-          Reference illustration — Penn Mutual, issue age 44, non-guaranteed values are not
-          guaranteed and assume continuation of the current dividend scale.
-        </p>
+            {!result && (
+              <ErrorState message="Fix the Accumulation tab's inputs first — Distribution needs a valid ending balance to carry over." />
+            )}
 
-        <WholeLifeInputPanel
-          frontLoadedPremium={frontLoadedPremium}
-          spStartingYear={inputs.startingYear}
-          onFrontLoadedPremiumChange={setFrontLoadedPremium}
-          spDataTruncated={wlResult.spComparison.truncated}
-          spYearsAvailable={wlResult.spComparison.years.length}
-          comparisonYears={wlResult.comparisonYears}
-          spFeePct={inputs.managementFeePct}
-        />
+            {result && (
+              <>
+                <DistributionInputPanel
+                  inputs={distributionInputs}
+                  onChange={setDistributionInputs}
+                  validationErrors={distributionValidationErrors}
+                />
 
-        {!wlResult.isOriginalPremium && <PremiumScaleWarning />}
+                {distributionValidationErrors.length > 0 && (
+                  <ErrorState
+                    message={distributionValidationErrors.map((e) => e.message).join(' ')}
+                  />
+                )}
 
-        <ComparisonChart result={wlResult} />
-        <WholeLifeSummary result={wlResult} />
-        <OpportunityCostCallout
-          result={wlResult}
-          nonAppuaPremiumPerYear={NON_APPUA_PREMIUM * premiumScaleRatio}
-        />
-        <CaveatsPanel />
+                {distributionResult && (
+                  <>
+                    <DistributionChart
+                      result={distributionResult}
+                      stopWorkingAge={distributionInputs.stopWorkingAge}
+                    />
+                    <DistributionSummary
+                      result={distributionResult}
+                      stopWorkingAge={distributionInputs.stopWorkingAge}
+                      planThroughAge={distributionInputs.planThroughAge}
+                    />
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
       </main>
     </div>
   );
