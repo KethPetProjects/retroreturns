@@ -18,11 +18,20 @@ interface DistributionChartProps {
 
 export function DistributionChart({ result, stopWorkingAge }: DistributionChartProps) {
   const { monteCarlo } = result;
+  const startingBalance = monteCarlo.medianTrialRows[0]?.beginningBalance;
 
-  const chartData = monteCarlo.medianTrialRows.map((row, i) => ({
-    age: stopWorkingAge + i,
-    balance: row.endingBalance,
-  }));
+  // A "year 0" point at the true pre-withdrawal starting balance, so the
+  // line always visibly starts from the same place — without it, the first
+  // plotted point was already after a year of (randomly drawn) return and
+  // withdrawal, which made the chart's apparent starting point jump around
+  // on every recompute even though the real starting balance never changed.
+  const chartData = [
+    ...(startingBalance !== undefined ? [{ age: stopWorkingAge - 1, balance: startingBalance }] : []),
+    ...monteCarlo.medianTrialRows.map((row, i) => ({
+      age: stopWorkingAge + i,
+      balance: row.endingBalance,
+    })),
+  ];
 
   return (
     <section className="card p-4 sm:p-6">
