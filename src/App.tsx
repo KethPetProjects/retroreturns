@@ -45,6 +45,7 @@ function App() {
     premiumScaleRatio,
     comparisonYears: inputs.numberOfYears,
     feePct: inputs.managementFeePct,
+    taxRatePct: inputs.taxRatePct,
   });
 
   return (

@@ -6,11 +6,17 @@ interface WholeLifeSummaryProps {
 }
 
 export function WholeLifeSummary({ result }: WholeLifeSummaryProps) {
-  const { scaledRows, spComparison, guaranteedIrr, nonGuaranteedIrr, guaranteedBreakEvenYear, nonGuaranteedBreakEvenYear } =
-    result;
+  const {
+    scaledRows,
+    guaranteedIrr,
+    nonGuaranteedIrr,
+    guaranteedBreakEvenYear,
+    nonGuaranteedBreakEvenYear,
+    finalSpActualAfterTax,
+    finalSpAverageAfterTax,
+    taxRatePct,
+  } = result;
   const finalRow = scaledRows[scaledRows.length - 1];
-  const finalSpActual = spComparison.actualBalances.at(-1);
-  const finalSpAverage = spComparison.averageBalances.at(-1);
 
   return (
     <section className="card p-4 sm:p-6">
@@ -35,18 +41,40 @@ export function WholeLifeSummary({ result }: WholeLifeSummaryProps) {
         <Metric
           label={`Final Guaranteed Cash Value (Year ${finalRow.year})`}
           value={formatDollars(finalRow.guaranteedCashValue)}
+          hint="Policy loans against this are typically tax-free while the policy stays in force"
         />
         <Metric
           label={`Final Non-Guaranteed Cash Value (Year ${finalRow.year})`}
           value={formatDollars(finalRow.nonGuaranteedCashValue)}
+          hint="Policy loans against this are typically tax-free while the policy stays in force"
+        />
+        <Metric
+          label={`Final Guaranteed Death Benefit (Year ${finalRow.year})`}
+          value={formatDollars(finalRow.guaranteedDeathBenefit)}
+          hint="The S&P side has no equivalent — this isn't accumulation value, it's protection value"
+        />
+        <Metric
+          label={`Final Non-Guaranteed Death Benefit (Year ${finalRow.year})`}
+          value={formatDollars(finalRow.nonGuaranteedDeathBenefit)}
+          hint="The S&P side has no equivalent — this isn't accumulation value, it's protection value"
         />
         <Metric
           label="Final S&P Actual (same schedule)"
-          value={finalSpActual !== undefined ? formatDollars(finalSpActual) : '—'}
+          value={formatDollars(finalSpActualAfterTax)}
+          hint={
+            taxRatePct > 0
+              ? `After-tax if withdrawn as a lump sum, at the Accumulation section's ${formatPercent(taxRatePct)} tax rate`
+              : 'Pre-tax (Accumulation section tax rate is 0%)'
+          }
         />
         <Metric
           label="Final S&P Average-Rate (same schedule)"
-          value={finalSpAverage !== undefined ? formatDollars(finalSpAverage) : '—'}
+          value={formatDollars(finalSpAverageAfterTax)}
+          hint={
+            taxRatePct > 0
+              ? `After-tax if withdrawn as a lump sum, at the Accumulation section's ${formatPercent(taxRatePct)} tax rate`
+              : 'Pre-tax (Accumulation section tax rate is 0%)'
+          }
         />
       </dl>
     </section>

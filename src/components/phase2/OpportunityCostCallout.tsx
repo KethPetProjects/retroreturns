@@ -7,10 +7,9 @@ interface OpportunityCostCalloutProps {
 }
 
 export function OpportunityCostCallout({ result, nonAppuaPremiumPerYear }: OpportunityCostCalloutProps) {
-  const { opportunityCost, scaledRows } = result;
+  const { scaledRows, finalOpportunityCostActualAfterTax, finalOpportunityCostAverageAfterTax, taxRatePct } =
+    result;
   const finalYear = scaledRows[scaledRows.length - 1].year;
-  const finalActual = opportunityCost.actualBalances.at(-1);
-  const finalAverage = opportunityCost.averageBalances.at(-1);
 
   return (
     <section className="card border-sky-800/40 p-4 sm:p-6">
@@ -22,13 +21,16 @@ export function OpportunityCostCallout({ result, nonAppuaPremiumPerYear }: Oppor
         premium (Base Contract + FPR — the dollars that pay for the policy itself, not the APPUA
         cash-value dollars) had instead been invested in the S&amp;P 500, it would be worth{' '}
         <span className="font-semibold text-slate-100">
-          {finalActual !== undefined ? formatDollars(finalActual) : '—'}
+          {formatDollars(finalOpportunityCostActualAfterTax)}
         </span>{' '}
         (actual sequenced returns) or{' '}
         <span className="font-semibold text-slate-100">
-          {finalAverage !== undefined ? formatDollars(finalAverage) : '—'}
+          {formatDollars(finalOpportunityCostAverageAfterTax)}
         </span>{' '}
-        (average-rate) by year {finalYear}.
+        (average-rate) by year {finalYear}
+        {taxRatePct > 0
+          ? `, after tax at the Accumulation section's rate if withdrawn as a lump sum.`
+          : '.'}
       </p>
       <p className="mt-2 text-xs text-slate-500">
         This is the opportunity cost of the insurance protection itself, separate from the APPUA

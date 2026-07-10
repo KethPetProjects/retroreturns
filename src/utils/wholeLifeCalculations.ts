@@ -129,6 +129,15 @@ export interface WholeLifeComparisonInputs {
    * low-cost index fund.
    */
   feePct: number;
+  /**
+   * Phase 1's simplified end-of-period tax haircut (Section 3.4's placeholder
+   * tax model), applied only to the S&P side's final lump-sum values — not to
+   * WL cash value. This mirrors a real structural asymmetry, not an oversight:
+   * an S&P withdrawal is a taxable event, while a whole life policy loan is
+   * typically received tax-free as long as the policy stays in force (Section
+   * 12.10 caveat 5). Applying tax to WL cash value here would misrepresent it.
+   */
+  taxRatePct: number;
 }
 
 export interface WholeLifeComparisonResult {
@@ -141,10 +150,16 @@ export interface WholeLifeComparisonResult {
   opportunityCost: SpScheduleComparisonResult;
   isOriginalPremium: boolean;
   comparisonYears: number;
+  taxRatePct: number;
+  /** Final S&P values after applying taxRatePct as a lump-sum-withdrawal haircut — see taxRatePct doc comment. */
+  finalSpActualAfterTax: number;
+  finalSpAverageAfterTax: number;
+  finalOpportunityCostActualAfterTax: number;
+  finalOpportunityCostAverageAfterTax: number;
 }
 
 export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): WholeLifeComparisonResult {
-  const { spStartingYear, premiumScaleRatio, feePct } = inputs;
+  const { spStartingYear, premiumScaleRatio, feePct, taxRatePct } = inputs;
   const comparisonYears = Math.min(Math.max(1, Math.trunc(inputs.comparisonYears)), MAX_COMPARISON_YEARS);
 
   const scaledRows = scaleIllustration(premiumScaleRatio).slice(0, comparisonYears);
@@ -169,6 +184,11 @@ export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): Whole
   const nonAppuaPremium = NON_APPUA_PREMIUM * premiumScaleRatio;
   const opportunityCost = computeOpportunityCost(spStartingYear, scaledRows.length, nonAppuaPremium, feePct);
 
+  const finalSpActualAfterTax = spComparison.actualBalances.at(-1)! * (1 - taxRatePct);
+  const finalSpAverageAfterTax = spComparison.averageBalances.at(-1)! * (1 - taxRatePct);
+  const finalOpportunityCostActualAfterTax = opportunityCost.actualBalances.at(-1)! * (1 - taxRatePct);
+  const finalOpportunityCostAverageAfterTax = opportunityCost.averageBalances.at(-1)! * (1 - taxRatePct);
+
   return {
     scaledRows,
     guaranteedIrr,
@@ -179,5 +199,10 @@ export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): Whole
     opportunityCost,
     isOriginalPremium: premiumScaleRatio === 1,
     comparisonYears,
+    taxRatePct,
+    finalSpActualAfterTax,
+    finalSpAverageAfterTax,
+    finalOpportunityCostActualAfterTax,
+    finalOpportunityCostAverageAfterTax,
   };
 }
