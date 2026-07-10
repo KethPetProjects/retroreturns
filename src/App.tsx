@@ -202,6 +202,7 @@ function App() {
                       result={distributionResult}
                       stopWorkingAge={distributionInputs.stopWorkingAge}
                       planThroughAge={distributionInputs.planThroughAge}
+                      averageRateUsed={result?.averageRateUsed ?? 0}
                     />
                   </>
                 )}
