@@ -183,11 +183,8 @@ export const HISTORICAL_TOTAL_RETURN_POOL = SP500_FALLBACK_DATA.map((r) => r.tot
 const DEFAULT_MONTE_CARLO_TRIALS = 1000;
 
 export interface DistributionComparisonInputs {
-  /** Phase 1's pre-tax final ACTUAL balance (before Phase 1's own end-of-period haircut) — the real, sequenced-return starting point for the volatility scenario. */
+  /** Phase 1's pre-tax final ACTUAL balance (before Phase 1's own end-of-period haircut) — the real, sequenced-return starting point. */
   startingBalanceActual: number;
-  /** Phase 1's pre-tax final AVERAGE-RATE balance, and the flat rate that produced it — used for the smooth comparison scenario. */
-  startingBalanceAverage: number;
-  averageRateUsed: number;
   distributionInputs: DistributionInputs;
   monteCarloTrials?: number;
   randomFn?: () => number;
@@ -195,41 +192,25 @@ export interface DistributionComparisonInputs {
 
 export interface DistributionComparisonResult {
   years: number;
-  averageRateTrack: WithdrawalTrackResult;
   monteCarlo: MonteCarloResult;
 }
 
 /**
- * Ties Phase 1's ending balances into Phase 3's two distribution scenarios
- * (Section 13.4 point 3): Scenario A replays the smooth Average-Rate track
- * forward as a flat-rate withdrawal simulation; Scenario B runs a Monte
- * Carlo volatility simulation starting from Phase 1's real sequenced-return
- * ending balance.
+ * Ties Phase 1's real sequenced-return ending balance into Phase 3's Monte
+ * Carlo volatility simulation. Originally also ran a smooth "Average-Rate"
+ * scenario alongside this (Section 13.4 point 3's Scenario A), but that was
+ * removed — the flat arithmetic-mean rate was confusing and never failed,
+ * so it added no real signal on top of the Monte Carlo success rate/outcome
+ * distribution, which is what actually answers "how long will it last."
  */
 export function runDistributionComparison(
   inputs: DistributionComparisonInputs,
 ): DistributionComparisonResult {
-  const {
-    startingBalanceActual,
-    startingBalanceAverage,
-    averageRateUsed,
-    distributionInputs,
-    monteCarloTrials = DEFAULT_MONTE_CARLO_TRIALS,
-    randomFn,
-  } = inputs;
+  const { startingBalanceActual, distributionInputs, monteCarloTrials = DEFAULT_MONTE_CARLO_TRIALS, randomFn } =
+    inputs;
   const { stopWorkingAge, planThroughAge, annualExpense, inflationRatePct, standardDeduction, taxRatePct, managementFeePct } =
     distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
-
-  const averageRateTrack = runWithdrawalTrack(
-    startingBalanceAverage,
-    new Array(years).fill(averageRateUsed),
-    annualExpense,
-    inflationRatePct,
-    standardDeduction,
-    taxRatePct,
-    managementFeePct,
-  );
 
   const monteCarlo = runMonteCarloDistribution(
     startingBalanceActual,
@@ -244,7 +225,7 @@ export function runDistributionComparison(
     randomFn,
   );
 
-  return { years, averageRateTrack, monteCarlo };
+  return { years, monteCarlo };
 }
 
 export interface DistributionValidationError {

@@ -17,27 +17,23 @@ interface DistributionChartProps {
 }
 
 export function DistributionChart({ result, stopWorkingAge }: DistributionChartProps) {
-  const { averageRateTrack, monteCarlo } = result;
-  const maxLen = Math.max(averageRateTrack.rows.length, monteCarlo.medianTrialRows.length);
+  const { monteCarlo } = result;
 
-  const chartData = Array.from({ length: maxLen }, (_, i) => {
-    const yearIndex = i + 1;
-    return {
-      age: stopWorkingAge + yearIndex - 1,
-      averageRateBalance: averageRateTrack.rows[i]?.endingBalance,
-      volatilityBalance: monteCarlo.medianTrialRows[i]?.endingBalance,
-    };
-  });
+  const chartData = monteCarlo.medianTrialRows.map((row, i) => ({
+    age: stopWorkingAge + i,
+    balance: row.endingBalance,
+  }));
 
   return (
     <section className="card p-4 sm:p-6">
       <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Distribution: Average-Rate vs. Volatility (Monte Carlo Median Path)
+        Distribution: Monte Carlo Median Path
       </h2>
       <p className="mb-2 text-xs text-slate-500">
-        The volatility line is one representative simulated path (the median outcome across{' '}
-        {monteCarlo.trials.toLocaleString()} randomized trials) — not a single forecast. See the
-        summary below for the full distribution of outcomes.
+        One representative simulated path — the median outcome across{' '}
+        {monteCarlo.trials.toLocaleString()} randomized trials, each drawing real historical
+        annual returns in random order. See the summary below for the full distribution of
+        outcomes, not just this one path.
       </p>
       <div className="h-80 w-full sm:h-96">
         <ResponsiveContainer width="100%" height="100%">
@@ -59,17 +55,8 @@ export function DistributionChart({ result, stopWorkingAge }: DistributionChartP
             <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
             <Line
               type="monotone"
-              dataKey="averageRateBalance"
-              name="Average-Rate"
-              stroke="#94a3b8"
-              strokeWidth={2}
-              strokeDasharray="6 5"
-              dot={false}
-            />
-            <Line
-              type="monotone"
-              dataKey="volatilityBalance"
-              name="Volatility (median simulated path)"
+              dataKey="balance"
+              name="Balance (median simulated path)"
               stroke="#4ade80"
               strokeWidth={2.5}
               dot={false}

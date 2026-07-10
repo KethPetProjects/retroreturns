@@ -169,11 +169,9 @@ describe('runDistributionComparison (integration)', () => {
     };
   }
 
-  it('runs the average-rate track for planThroughAge - stopWorkingAge years', () => {
+  it('runs the Monte Carlo simulation for planThroughAge - stopWorkingAge years', () => {
     const result = runDistributionComparison({
       startingBalanceActual: 1_500_000,
-      startingBalanceAverage: 2_000_000,
-      averageRateUsed: 0.08,
       distributionInputs: {
         currentAge: 40,
         stopWorkingAge: 65,
@@ -188,11 +186,12 @@ describe('runDistributionComparison (integration)', () => {
       randomFn: seededRandom(1),
     });
     expect(result.years).toBe(30);
-    expect(result.averageRateTrack.rows.length).toBeGreaterThan(0);
-    expect(result.averageRateTrack.rows.length).toBeLessThanOrEqual(30);
+    expect(result.monteCarlo.trials).toBe(100);
+    expect(result.monteCarlo.medianTrialRows.length).toBeGreaterThan(0);
+    expect(result.monteCarlo.medianTrialRows.length).toBeLessThanOrEqual(30);
   });
 
-  it('uses the pre-tax ACTUAL balance for the Monte Carlo scenario and pre-tax AVERAGE balance for the average-rate scenario', () => {
+  it('uses the pre-tax ACTUAL starting balance passed in, not some other figure', () => {
     const distributionInputs = {
       currentAge: 40,
       stopWorkingAge: 65,
@@ -205,17 +204,13 @@ describe('runDistributionComparison (integration)', () => {
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
-      startingBalanceAverage: 5_000_000,
-      averageRateUsed: 0.07,
       distributionInputs,
       monteCarloTrials: 50,
       randomFn: seededRandom(5),
     });
-    // With a tiny actual starting balance and a huge average starting balance,
-    // the Monte Carlo (actual-balance-driven) scenario should fail far more
-    // often than the average-rate scenario would even come close to failing.
-    expect(lowActualStart.monteCarlo.successRatePct).toBeLessThan(1);
-    expect(lowActualStart.averageRateTrack.depletedAtYear).toBeNull();
+    // A tiny starting balance against a much larger annual expense should fail
+    // in nearly every trial, regardless of the specific random returns drawn.
+    expect(lowActualStart.monteCarlo.successRatePct).toBeLessThan(0.2);
   });
 });
 

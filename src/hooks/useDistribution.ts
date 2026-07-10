@@ -12,8 +12,6 @@ const DEBOUNCE_MS = 300;
 export interface UseDistributionArgs {
   distributionInputs: DistributionInputs;
   startingBalanceActual: number;
-  startingBalanceAverage: number;
-  averageRateUsed: number;
   phase1: { startingYear: number; numberOfYears: number };
 }
 
@@ -49,8 +47,6 @@ export function useDistribution(args: UseDistributionArgs): UseDistributionResul
     args.distributionInputs.taxRatePct,
     args.distributionInputs.managementFeePct,
     args.startingBalanceActual,
-    args.startingBalanceAverage,
-    args.averageRateUsed,
     args.phase1.startingYear,
     args.phase1.numberOfYears,
   ]);
@@ -65,8 +61,6 @@ export function useDistribution(args: UseDistributionArgs): UseDistributionResul
     try {
       return runDistributionComparison({
         startingBalanceActual: debounced.startingBalanceActual,
-        startingBalanceAverage: debounced.startingBalanceAverage,
-        averageRateUsed: debounced.averageRateUsed,
         distributionInputs: debounced.distributionInputs,
       });
     } catch {

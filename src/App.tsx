@@ -74,8 +74,6 @@ function App() {
   const { result: distributionResult, validationErrors: distributionValidationErrors } = useDistribution({
     distributionInputs,
     startingBalanceActual: finalRow?.actualBalance ?? 0,
-    startingBalanceAverage: finalRow?.averageBalance ?? 0,
-    averageRateUsed: result?.averageRateUsed ?? 0,
     phase1: { startingYear: inputs.startingYear, numberOfYears: inputs.numberOfYears },
   });
 
@@ -202,7 +200,6 @@ function App() {
                       result={distributionResult}
                       stopWorkingAge={distributionInputs.stopWorkingAge}
                       planThroughAge={distributionInputs.planThroughAge}
-                      averageRateUsed={result?.averageRateUsed ?? 0}
                     />
                   </>
                 )}
