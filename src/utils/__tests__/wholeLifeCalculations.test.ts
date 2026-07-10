@@ -139,13 +139,11 @@ describe('runWholeLifeComparison (integration)', () => {
     expect(finalOppCost).toBeLessThan(finalMainComparison); // non-APPUA-only stream is a small slice of total premium
   });
 
-  it('limits the comparison to comparisonYears, ignoring later illustration years', () => {
+  it('limits the chart/S&P comparison to comparisonYears, ignoring later illustration years', () => {
     const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30 });
     expect(result.scaledRows).toHaveLength(30);
     expect(result.comparisonYears).toBe(30);
     expect(result.scaledRows.at(-1)!.year).toBe(30);
-    // IRR/break-even should be computed through year 30, not year 55
-    expect(result.nonGuaranteedIrr).not.toBeNull();
   });
 
   it('clamps comparisonYears to [1, 55]', () => {
@@ -153,5 +151,28 @@ describe('runWholeLifeComparison (integration)', () => {
     expect(tooMany.comparisonYears).toBe(55);
     const tooFew = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 0 });
     expect(tooFew.comparisonYears).toBe(1);
+  });
+
+  it('keeps IRR and break-even describing the full 55-year policy regardless of comparisonYears (Bug A regression)', () => {
+    // Before this fix, IRR/break-even were computed on the truncated comparisonYears
+    // window, which produced nonsensical rates at low year counts (e.g. negative IRR
+    // at comparisonYears=1) that contradicted the doc's confirmed ~1.3-1.8%/4.8-5.0%
+    // figures. IRR and break-even should be stable no matter how much of the
+    // illustration this particular comparison window is showing.
+    const full = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55 });
+    const oneYear = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 1 });
+    const sixYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 6 });
+    const thirtyYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30 });
+
+    for (const result of [oneYear, sixYears, thirtyYears]) {
+      expect(result.guaranteedIrr).toBeCloseTo(full.guaranteedIrr!, 10);
+      expect(result.nonGuaranteedIrr).toBeCloseTo(full.nonGuaranteedIrr!, 10);
+      expect(result.guaranteedBreakEvenYear).toBe(full.guaranteedBreakEvenYear);
+      expect(result.nonGuaranteedBreakEvenYear).toBe(full.nonGuaranteedBreakEvenYear);
+    }
+
+    // and still lands in the doc's confirmed ballpark, even at comparisonYears=1
+    expect(oneYear.nonGuaranteedIrr!).toBeGreaterThan(0.04);
+    expect(oneYear.nonGuaranteedIrr!).toBeLessThan(0.055);
   });
 });

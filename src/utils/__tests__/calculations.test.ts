@@ -142,6 +142,16 @@ describe('runSimulation (Section 10 acceptance criteria)', () => {
     expect(result.feeImpactDollars).toBeCloseTo(0, 6);
   });
 
+  it('produces a negative fee impact (a savings, not a cost) when the input fee is below baseline', () => {
+    // Bug: the raw number is correct (baseline - actual), but a naive UI display
+    // showed this as a negative "cost", which reads backwards. The calculation
+    // itself should still produce this negative value — the UI is responsible
+    // for relabeling it as savings (see SummarySection.tsx).
+    const lowFeeInputs = { ...baseInputs, managementFeePct: 0 };
+    const result = runSimulation(lowFeeInputs);
+    expect(result.feeImpactDollars).toBeLessThan(0);
+  });
+
   it('applies tax as a single end-of-period haircut on both tracks', () => {
     const noTax = runSimulation(baseInputs);
     const withTax = runSimulation({ ...baseInputs, taxRatePct: 0.15 });

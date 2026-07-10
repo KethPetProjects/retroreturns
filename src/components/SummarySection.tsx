@@ -34,9 +34,13 @@ export function SummarySection({ result }: SummarySectionProps) {
         <Metric label="Average Rate Used" value={formatPercent(result.averageRateUsed)} />
         <Metric label="Management Fee Applied" value={formatPercent(result.managementFeePct)} />
         <Metric
-          label="Fee Impact ($)"
-          value={formatDollars(result.feeImpactDollars)}
-          hint="Cost of the fee alone, vs. a 0.03% baseline index-fund fee"
+          label={result.feeImpactDollars >= 0 ? 'Fee Impact ($)' : 'Fee Savings ($)'}
+          value={formatDollars(Math.abs(result.feeImpactDollars))}
+          hint={
+            result.feeImpactDollars >= 0
+              ? 'Cost of the fee alone, vs. a 0.03% baseline index-fund fee'
+              : 'Your fee is below the 0.03% baseline, so this reflects savings, not a cost'
+          }
         />
         <Metric label="Tax Rate Applied" value={formatPercent(result.taxRatePct)} />
       </dl>

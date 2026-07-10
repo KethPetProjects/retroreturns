@@ -139,15 +139,20 @@ export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): Whole
   const comparisonYears = Math.min(Math.max(1, Math.trunc(inputs.comparisonYears)), MAX_COMPARISON_YEARS);
 
   const scaledRows = scaleIllustration(premiumScaleRatio).slice(0, comparisonYears);
-  const finalYearIndex = scaledRows.length;
 
-  // IRR and break-even are scale-invariant (see computeWholeLifeIRR doc comment)
-  // — compute from the unscaled ratio-1 illustration for a stable source of truth.
-  const unscaledRows = scaleIllustration(1).slice(0, comparisonYears);
-  const guaranteedIrr = computeWholeLifeIRR(unscaledRows, finalYearIndex, 'guaranteed');
-  const nonGuaranteedIrr = computeWholeLifeIRR(unscaledRows, finalYearIndex, 'nonGuaranteed');
-  const guaranteedBreakEvenYear = computeBreakEvenYear(unscaledRows, 'guaranteed');
-  const nonGuaranteedBreakEvenYear = computeBreakEvenYear(unscaledRows, 'nonGuaranteed');
+  // IRR and break-even describe the policy itself over its full 55-year
+  // schedule, not "whatever window this particular comparison happens to be
+  // showing" — computing them on a truncated window produces nonsensical
+  // rates at low comparisonYears (a short premium stream with no time to
+  // recover its own front-loaded cost has no stable, meaningful IRR).
+  // Scale-invariant too (see computeWholeLifeIRR doc comment), so compute
+  // from the unscaled, un-truncated illustration regardless of comparisonYears.
+  const fullUnscaledRows = scaleIllustration(1);
+  const fullYears = fullUnscaledRows.length;
+  const guaranteedIrr = computeWholeLifeIRR(fullUnscaledRows, fullYears, 'guaranteed');
+  const nonGuaranteedIrr = computeWholeLifeIRR(fullUnscaledRows, fullYears, 'nonGuaranteed');
+  const guaranteedBreakEvenYear = computeBreakEvenYear(fullUnscaledRows, 'guaranteed');
+  const nonGuaranteedBreakEvenYear = computeBreakEvenYear(fullUnscaledRows, 'nonGuaranteed');
 
   const premiumSchedule = scaledRows.map((r) => r.premium);
   const spComparison = runSpComparisonForSchedule(spStartingYear, premiumSchedule);
