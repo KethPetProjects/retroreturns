@@ -1,5 +1,25 @@
 import { SP500_FALLBACK_DATA } from '../data/sp500Fallback';
-import type { DistributionInputs } from '../types';
+import type { DistributionInputs, SimulationYearRow } from '../types';
+
+/**
+ * Finds Phase 1's real (sequenced-return) balance at the point retirement
+ * begins, which may be any year during accumulation — not just the very
+ * end. E.g. retiring 27 years into a 30-year accumulation window should use
+ * year 27's balance, not force retirement to align with the full endpoint.
+ * yearsIntoAccumulation at or past the last modeled year falls back to the
+ * final row (matches the "retiring right as/after accumulation ends" case).
+ */
+export function getActualBalanceAtRetirement(
+  rows: SimulationYearRow[],
+  yearsIntoAccumulation: number,
+): number | undefined {
+  if (rows.length === 0) return undefined;
+  if (yearsIntoAccumulation >= rows.length) {
+    return rows[rows.length - 1].actualBalance;
+  }
+  if (yearsIntoAccumulation < 1) return undefined;
+  return rows[yearsIntoAccumulation - 1].actualBalance;
+}
 
 /**
  * Solves for the gross (pre-tax) withdrawal G such that, after tax on the
@@ -284,14 +304,24 @@ export function validateDistributionInputs(
   }
 
   if (currentAge !== undefined && stopWorkingAge !== undefined && !Number.isNaN(currentAge) && !Number.isNaN(stopWorkingAge)) {
-    const retirementYear = phase1.startingYear + (stopWorkingAge - currentAge);
-    // Phase 1 simulates calendar years [startingYear, startingYear + numberOfYears - 1];
-    // retirement should begin at or immediately after that last accumulation year.
+    // Retirement can begin at any point during Phase 1's accumulation window
+    // (using that year's actual balance, not just the final one), or up to
+    // one year immediately after it ends (using the final balance unchanged).
+    // It's invalid to retire before accumulation even starts, or long enough
+    // after it ends that there's an unmodeled gap with no growth assumption.
+    const yearsIntoAccumulation = stopWorkingAge - currentAge;
+    const retirementYear = phase1.startingYear + yearsIntoAccumulation;
     const lastAccumulationYear = phase1.startingYear + phase1.numberOfYears - 1;
-    if (retirementYear < lastAccumulationYear || retirementYear > lastAccumulationYear + 1) {
+
+    if (yearsIntoAccumulation < 1) {
       errors.push({
         field: 'stopWorkingAge',
-        message: `Stop-working age implies retirement starts in ${retirementYear}, but the Accumulation section's simulation runs through ${lastAccumulationYear}. These should be within a year of each other.`,
+        message: `Stop-working age implies retirement starts in ${retirementYear}, before the Accumulation section's simulation even begins in ${phase1.startingYear}.`,
+      });
+    } else if (yearsIntoAccumulation > phase1.numberOfYears + 1) {
+      errors.push({
+        field: 'stopWorkingAge',
+        message: `Stop-working age implies retirement starts in ${retirementYear}, well after the Accumulation section's simulation ends in ${lastAccumulationYear}. Extend Accumulation's Number of Years, or lower Stop-Working Age.`,
       });
     }
   }

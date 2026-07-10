@@ -21,6 +21,7 @@ import { useWholeLifeComparison } from './hooks/useWholeLifeComparison';
 import { useDistribution } from './hooks/useDistribution';
 import { ORIGINAL_FRONT_LOADED_PREMIUM, NON_APPUA_PREMIUM } from './data/wholeLifeIllustration';
 import { scaleRatioFromFrontLoadedPremium } from './utils/premiumScaling';
+import { getActualBalanceAtRetirement } from './utils/distributionCalculations';
 import type { SimulationInputs, DistributionInputs } from './types';
 
 const currentYear = new Date().getFullYear();
@@ -66,14 +67,19 @@ function App() {
   });
 
   const [distributionInputs, setDistributionInputs] = useState<DistributionInputs>(DEFAULT_DISTRIBUTION_INPUTS);
-  // Carries over Phase 1's PRE-TAX ending balances (the last row's actualBalance/
-  // averageBalance, not finalActualValue/finalAverageValue) — Phase 3 applies its
-  // own withdrawal-based tax treatment year by year, so starting from an
-  // already-taxed lump sum would double-tax the money.
-  const finalRow = result?.rows.at(-1);
+  // Carries over Phase 1's PRE-TAX balance (actualBalance, not finalActualValue —
+  // Phase 3 applies its own withdrawal-based tax treatment year by year, so
+  // starting from an already-taxed lump sum would double-tax the money) at
+  // whichever accumulation year corresponds to Stop-Working Age — not always
+  // the final year. Retiring 27 years into a 30-year accumulation window uses
+  // year 27's balance, not year 30's.
+  const yearsIntoAccumulation = distributionInputs.stopWorkingAge - distributionInputs.currentAge;
+  const startingBalanceActual = result
+    ? (getActualBalanceAtRetirement(result.rows, yearsIntoAccumulation) ?? 0)
+    : 0;
   const { result: distributionResult, validationErrors: distributionValidationErrors } = useDistribution({
     distributionInputs,
-    startingBalanceActual: finalRow?.actualBalance ?? 0,
+    startingBalanceActual,
     phase1: { startingYear: inputs.startingYear, numberOfYears: inputs.numberOfYears },
   });
 

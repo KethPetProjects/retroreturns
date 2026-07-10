@@ -6,7 +6,49 @@ import {
   runMonteCarloDistribution,
   runDistributionComparison,
   validateDistributionInputs,
+  getActualBalanceAtRetirement,
 } from '../distributionCalculations';
+import type { SimulationYearRow } from '../../types';
+
+function makeRows(actualBalances: number[]): SimulationYearRow[] {
+  return actualBalances.map((actualBalance, i) => ({
+    year: 1995 + i,
+    yearIndex: i + 1,
+    beginningBalance: 0,
+    contribution: 0,
+    priceReturn: 0,
+    totalReturn: 0,
+    avgRateUsed: 0,
+    interestEarnings: 0,
+    feeAmount: 0,
+    actualBalance,
+    cagrActualToDate: null,
+    averageBalance: 0,
+  }));
+}
+
+describe('getActualBalanceAtRetirement', () => {
+  const rows = makeRows([100, 200, 300, 400, 500]); // years 1995-1999, a 5-year accumulation window
+
+  it('returns the balance for a year in the middle of accumulation, not the final year', () => {
+    // retiring 3 years in should use year 3's balance (300), not year 5's (500)
+    expect(getActualBalanceAtRetirement(rows, 3)).toBe(300);
+  });
+
+  it('returns the first year\'s balance when retiring right after year 1', () => {
+    expect(getActualBalanceAtRetirement(rows, 1)).toBe(100);
+  });
+
+  it('falls back to the final balance when retiring at or after accumulation ends', () => {
+    expect(getActualBalanceAtRetirement(rows, 5)).toBe(500);
+    expect(getActualBalanceAtRetirement(rows, 6)).toBe(500); // one year past the end, graceful fallback
+  });
+
+  it('returns undefined when retiring before accumulation starts, or with no rows', () => {
+    expect(getActualBalanceAtRetirement(rows, 0)).toBeUndefined();
+    expect(getActualBalanceAtRetirement([], 3)).toBeUndefined();
+  });
+});
 
 describe('grossUpWithdrawal / computeTaxOwed (net-to-gross round trip)', () => {
   it('round-trips exactly: net = gross - tax(gross)', () => {
@@ -233,11 +275,45 @@ describe('validateDistributionInputs (Section 13.2)', () => {
     expect(errors).toHaveLength(0);
   });
 
-  it('flags a stop-working age that implies retirement starting well before accumulation ends', () => {
+  it('allows retiring partway through accumulation, not just at the very end', () => {
+    // 1995 + (50-35) = 2010, 15 years into the 30-year accumulation window —
+    // should use that year's balance, not be rejected outright.
     const errors = validateDistributionInputs(
       {
         currentAge: 35,
-        stopWorkingAge: 50, // 1995 + 15 = 2010, way before 2024
+        stopWorkingAge: 50,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        taxRatePct: 0.15,
+        managementFeePct: 0.0003,
+      },
+      phase1,
+    );
+    expect(errors).toHaveLength(0);
+  });
+
+  it('flags a stop-working age that implies retirement before accumulation even starts', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 35, // stopWorkingAge - currentAge = 0, before year 1
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        taxRatePct: 0.15,
+        managementFeePct: 0.0003,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'stopWorkingAge')).toBe(true);
+  });
+
+  it('flags a stop-working age that implies retirement well after accumulation ends (unmodeled gap)', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 80, // 45 years into a 30-year window
         planThroughAge: 95,
         annualExpense: 80000,
         standardDeduction: 15000,
