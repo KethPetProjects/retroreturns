@@ -29,8 +29,8 @@ const currentYear = new Date().getFullYear();
 const DEFAULT_INPUTS: SimulationInputs = {
   startingYear: 1995,
   numberOfYears: 30,
-  startingBalance: 10000,
-  annualContribution: 6000,
+  startingBalance: 0,
+  annualContribution: 10000,
   managementFeePct: 0.0003,
   taxRatePct: 0,
 };
