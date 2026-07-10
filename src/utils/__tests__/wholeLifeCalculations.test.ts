@@ -123,8 +123,8 @@ describe('computeOpportunityCost (Section 12.9)', () => {
 
 describe('runWholeLifeComparison (integration)', () => {
   it('keeps IRR stable across the original and a scaled premium', () => {
-    const original = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55 });
-    const scaled = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 0.5, comparisonYears: 55 });
+    const original = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55, feePct: 0.0003 });
+    const scaled = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 0.5, comparisonYears: 55, feePct: 0.0003 });
 
     expect(original.isOriginalPremium).toBe(true);
     expect(scaled.isOriginalPremium).toBe(false);
@@ -133,23 +133,23 @@ describe('runWholeLifeComparison (integration)', () => {
   });
 
   it('produces a distinct opportunity-cost result from the main S&P comparison', () => {
-    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55 });
+    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55, feePct: 0.0003 });
     const finalOppCost = result.opportunityCost.actualBalances.at(-1)!;
     const finalMainComparison = result.spComparison.actualBalances.at(-1)!;
     expect(finalOppCost).toBeLessThan(finalMainComparison); // non-APPUA-only stream is a small slice of total premium
   });
 
   it('limits the chart/S&P comparison to comparisonYears, ignoring later illustration years', () => {
-    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30 });
+    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30, feePct: 0.0003 });
     expect(result.scaledRows).toHaveLength(30);
     expect(result.comparisonYears).toBe(30);
     expect(result.scaledRows.at(-1)!.year).toBe(30);
   });
 
   it('clamps comparisonYears to [1, 55]', () => {
-    const tooMany = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 200 });
+    const tooMany = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 200, feePct: 0.0003 });
     expect(tooMany.comparisonYears).toBe(55);
-    const tooFew = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 0 });
+    const tooFew = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 0, feePct: 0.0003 });
     expect(tooFew.comparisonYears).toBe(1);
   });
 
@@ -159,10 +159,10 @@ describe('runWholeLifeComparison (integration)', () => {
     // at comparisonYears=1) that contradicted the doc's confirmed ~1.3-1.8%/4.8-5.0%
     // figures. IRR and break-even should be stable no matter how much of the
     // illustration this particular comparison window is showing.
-    const full = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55 });
-    const oneYear = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 1 });
-    const sixYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 6 });
-    const thirtyYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30 });
+    const full = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55, feePct: 0.0003 });
+    const oneYear = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 1, feePct: 0.0003 });
+    const sixYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 6, feePct: 0.0003 });
+    const thirtyYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30, feePct: 0.0003 });
 
     for (const result of [oneYear, sixYears, thirtyYears]) {
       expect(result.guaranteedIrr).toBeCloseTo(full.guaranteedIrr!, 10);
@@ -174,5 +174,37 @@ describe('runWholeLifeComparison (integration)', () => {
     // and still lands in the doc's confirmed ballpark, even at comparisonYears=1
     expect(oneYear.nonGuaranteedIrr!).toBeGreaterThan(0.04);
     expect(oneYear.nonGuaranteedIrr!).toBeLessThan(0.055);
+  });
+
+  it('applies the caller-supplied feePct to the S&P side, not a hardcoded baseline', () => {
+    // Bug: the S&P comparison used to silently default to BASELINE_FEE_PCT
+    // regardless of what fee the caller actually wanted, so a user testing a
+    // higher fee in Phase 1 would see Phase 1's numbers reflect it while the
+    // WL comparison's S&P side quietly stayed at the low-cost baseline —
+    // breaking the "same funding schedule, apples-to-apples" comparison
+    // (Section 12.5) the moment the fee input diverged from 0.03%.
+    const lowFee = runWholeLifeComparison({
+      spStartingYear: 1970,
+      premiumScaleRatio: 1,
+      comparisonYears: 30,
+      feePct: 0.0003,
+    });
+    const highFee = runWholeLifeComparison({
+      spStartingYear: 1970,
+      premiumScaleRatio: 1,
+      comparisonYears: 30,
+      feePct: 0.01,
+    });
+
+    expect(highFee.spComparison.actualBalances.at(-1)!).toBeLessThan(
+      lowFee.spComparison.actualBalances.at(-1)!,
+    );
+    expect(highFee.opportunityCost.actualBalances.at(-1)!).toBeLessThan(
+      lowFee.opportunityCost.actualBalances.at(-1)!,
+    );
+    // WL cash value itself is unaffected by the S&P-side fee input — it's real illustrated data
+    expect(highFee.scaledRows.at(-1)!.nonGuaranteedCashValue).toBe(
+      lowFee.scaledRows.at(-1)!.nonGuaranteedCashValue,
+    );
   });
 });

@@ -44,6 +44,7 @@ function App() {
     spStartingYear: inputs.startingYear,
     premiumScaleRatio,
     comparisonYears: inputs.numberOfYears,
+    feePct: inputs.managementFeePct,
   });
 
   return (
@@ -101,6 +102,7 @@ function App() {
           spDataTruncated={wlResult.spComparison.truncated}
           spYearsAvailable={wlResult.spComparison.years.length}
           comparisonYears={wlResult.comparisonYears}
+          spFeePct={inputs.managementFeePct}
         />
 
         {!wlResult.isOriginalPremium && <PremiumScaleWarning />}

@@ -9,6 +9,7 @@ interface WholeLifeInputPanelProps {
   spDataTruncated: boolean;
   spYearsAvailable: number;
   comparisonYears: number;
+  spFeePct: number;
 }
 
 export function WholeLifeInputPanel({
@@ -18,6 +19,7 @@ export function WholeLifeInputPanel({
   spDataTruncated,
   spYearsAvailable,
   comparisonYears,
+  spFeePct,
 }: WholeLifeInputPanelProps) {
   const isOriginal = frontLoadedPremium === ORIGINAL_FRONT_LOADED_PREMIUM;
 
@@ -75,8 +77,12 @@ export function WholeLifeInputPanel({
           </span>
         </div>
 
-        <div className="flex flex-col justify-end text-xs text-slate-500">
-          Scale ratio: {scaleRatioFromFrontLoadedPremium(frontLoadedPremium).toFixed(3)}×
+        <div className="flex flex-col justify-end gap-1 text-xs text-slate-500">
+          <p>Scale ratio: {scaleRatioFromFrontLoadedPremium(frontLoadedPremium).toFixed(3)}×</p>
+          <p>
+            S&amp;P comparison fee: {(spFeePct * 100).toFixed(2)}% — synced from the Accumulation
+            section's Management Fee above, so both sides use the same fee assumption.
+          </p>
         </div>
       </div>
     </section>

@@ -120,6 +120,15 @@ export interface WholeLifeComparisonInputs {
    * Phase 3/4's distribution-phase modeling. Clamped to [1, 55].
    */
   comparisonYears: number;
+  /**
+   * Management fee applied to the S&P side (spComparison and opportunityCost),
+   * synced from Phase 1's own Management Fee input rather than silently
+   * defaulting to BASELINE_FEE_PCT — otherwise the "same funding schedule"
+   * comparison (Section 12.5) quietly stops being apples-to-apples the moment
+   * a user changes Phase 1's fee to model something other than a pristine
+   * low-cost index fund.
+   */
+  feePct: number;
 }
 
 export interface WholeLifeComparisonResult {
@@ -135,7 +144,7 @@ export interface WholeLifeComparisonResult {
 }
 
 export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): WholeLifeComparisonResult {
-  const { spStartingYear, premiumScaleRatio } = inputs;
+  const { spStartingYear, premiumScaleRatio, feePct } = inputs;
   const comparisonYears = Math.min(Math.max(1, Math.trunc(inputs.comparisonYears)), MAX_COMPARISON_YEARS);
 
   const scaledRows = scaleIllustration(premiumScaleRatio).slice(0, comparisonYears);
@@ -155,10 +164,10 @@ export function runWholeLifeComparison(inputs: WholeLifeComparisonInputs): Whole
   const nonGuaranteedBreakEvenYear = computeBreakEvenYear(fullUnscaledRows, 'nonGuaranteed');
 
   const premiumSchedule = scaledRows.map((r) => r.premium);
-  const spComparison = runSpComparisonForSchedule(spStartingYear, premiumSchedule);
+  const spComparison = runSpComparisonForSchedule(spStartingYear, premiumSchedule, feePct);
 
   const nonAppuaPremium = NON_APPUA_PREMIUM * premiumScaleRatio;
-  const opportunityCost = computeOpportunityCost(spStartingYear, scaledRows.length, nonAppuaPremium);
+  const opportunityCost = computeOpportunityCost(spStartingYear, scaledRows.length, nonAppuaPremium, feePct);
 
   return {
     scaledRows,
