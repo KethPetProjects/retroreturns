@@ -29,6 +29,7 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 'Social Security',
                 'Other Income',
                 'Reverse Mortgage',
+                'LTC Cost',
                 'Tax Owed',
                 'Stock Balance',
                 'Cash Balance',
@@ -77,6 +78,9 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
                   {row.reverseMortgageIncome > 0 ? formatDollars(row.reverseMortgageIncome) : '—'}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-loss-400">
+                  {row.longTermCareCost > 0 ? formatDollars(row.longTermCareCost) : '—'}
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
                   {formatDollars(row.taxOwed)}

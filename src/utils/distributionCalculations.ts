@@ -99,6 +99,8 @@ export interface WithdrawalYearResult {
   otherIncome: number;
   /** This year's reverse mortgage draw, inflated from year 1, tax-free. */
   reverseMortgageIncome: number;
+  /** This year's extra Long-Term Care spending need (0 before its start age), added into netExpenseTarget. */
+  longTermCareCost: number;
 }
 
 export interface WithdrawalTrackResult {
@@ -114,6 +116,7 @@ interface ProjectedYearPlan {
   socialSecurityIncome: number;
   otherIncome: number;
   reverseMortgageIncome: number;
+  longTermCareCost: number;
   grossWithdrawal: number;
   taxOwed: number;
 }
@@ -129,12 +132,14 @@ function projectYearlyPlan(
   socialSecurityTaxablePortionPct: number,
   otherAnnualIncome: number,
   reverseMortgageAnnualIncome: number,
+  longTermCareAnnualCost: number,
+  longTermCareStartYear: number,
+  longTermCareInflationRatePct: number,
 ): ProjectedYearPlan[] {
   const projected: ProjectedYearPlan[] = [];
   for (let i = 0; i < years; i++) {
     const yearIndex = i + 1;
     const inflationFactor = Math.pow(1 + inflationRatePct, i);
-    const netExpenseTarget = annualExpense * inflationFactor;
     const yearStandardDeduction = standardDeduction * inflationFactor;
 
     // Social Security inflates from ITS OWN claiming year, not from year 1 of
@@ -149,6 +154,16 @@ function projectYearlyPlan(
     // payment is a fixed nominal dollar amount for life — it does not get a
     // cost-of-living adjustment, so this deliberately does NOT inflate.
     const reverseMortgageIncome = reverseMortgageAnnualIncome;
+
+    // Long-Term Care is extra SPENDING (not income), inflated at its own
+    // rate from its own start year — real LTC/care costs have historically
+    // outpaced general inflation, hence the separate rate. Once started it
+    // runs through the rest of the plan (no separate end age).
+    const longTermCareCost =
+      longTermCareAnnualCost > 0 && yearIndex >= longTermCareStartYear
+        ? longTermCareAnnualCost * Math.pow(1 + longTermCareInflationRatePct, yearIndex - longTermCareStartYear)
+        : 0;
+    const netExpenseTarget = annualExpense * inflationFactor + longTermCareCost;
 
     // Reverse mortgage proceeds are loan proceeds, not taxable income, so
     // they're excluded from taxableFixedIncome but still count toward
@@ -171,6 +186,7 @@ function projectYearlyPlan(
       socialSecurityIncome,
       otherIncome,
       reverseMortgageIncome,
+      longTermCareCost,
       grossWithdrawal,
       taxOwed,
     });
@@ -206,6 +222,10 @@ export interface RunWithdrawalTrackOptions {
   socialSecurityTaxablePortionPct?: number;
   otherAnnualIncome?: number;
   reverseMortgageAnnualIncome?: number;
+  longTermCareAnnualCost?: number;
+  /** 1-based year within this track Long-Term Care costs start (1 = starts immediately in year 1). */
+  longTermCareStartYear?: number;
+  longTermCareInflationRatePct?: number;
 }
 
 /**
@@ -223,6 +243,9 @@ export interface RunWithdrawalTrackOptions {
  *    come from the portfolio each year, pooled into one combined tax
  *    calculation the same way a real household files one unified return
  *    rather than taxing each income source separately.
+ *  - an optional Long-Term Care cost: extra SPENDING (not income) added on
+ *    top of the annual expense starting at its own start year, inflated at
+ *    its own (typically higher) rate, running through the rest of the plan.
  */
 export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): WithdrawalTrackResult {
   const {
@@ -240,6 +263,9 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     socialSecurityTaxablePortionPct = 0,
     otherAnnualIncome = 0,
     reverseMortgageAnnualIncome = 0,
+    longTermCareAnnualCost = 0,
+    longTermCareStartYear = 1,
+    longTermCareInflationRatePct = 0,
   } = options;
 
   const projected = projectYearlyPlan(
@@ -253,6 +279,9 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     socialSecurityTaxablePortionPct,
     otherAnnualIncome,
     reverseMortgageAnnualIncome,
+    longTermCareAnnualCost,
+    longTermCareStartYear,
+    longTermCareInflationRatePct,
   );
 
   const initialCashTarget = cashBucketTarget(projected, 0, cashBucketYears);
@@ -266,8 +295,15 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     if (stockBalance <= 0 && cashBalance <= 0) break;
 
     const yearIndex = i + 1;
-    const { netExpenseTarget, socialSecurityIncome, otherIncome, reverseMortgageIncome, grossWithdrawal, taxOwed } =
-      projected[i];
+    const {
+      netExpenseTarget,
+      socialSecurityIncome,
+      otherIncome,
+      reverseMortgageIncome,
+      longTermCareCost,
+      grossWithdrawal,
+      taxOwed,
+    } = projected[i];
 
     const beginningBalance = stockBalance + cashBalance;
 
@@ -309,6 +345,7 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
       socialSecurityIncome,
       otherIncome,
       reverseMortgageIncome,
+      longTermCareCost,
     });
 
     if (endingBalance <= 0) {
@@ -352,6 +389,9 @@ export interface RunMonteCarloDistributionOptions {
   socialSecurityTaxablePortionPct?: number;
   otherAnnualIncome?: number;
   reverseMortgageAnnualIncome?: number;
+  longTermCareAnnualCost?: number;
+  longTermCareStartYear?: number;
+  longTermCareInflationRatePct?: number;
 }
 
 /**
@@ -380,6 +420,9 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     socialSecurityTaxablePortionPct = 0,
     otherAnnualIncome = 0,
     reverseMortgageAnnualIncome = 0,
+    longTermCareAnnualCost = 0,
+    longTermCareStartYear = 1,
+    longTermCareInflationRatePct = 0,
   } = options;
 
   const results: WithdrawalTrackResult[] = [];
@@ -405,6 +448,9 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
         socialSecurityTaxablePortionPct,
         otherAnnualIncome,
         reverseMortgageAnnualIncome,
+        longTermCareAnnualCost,
+        longTermCareStartYear,
+        longTermCareInflationRatePct,
       }),
     );
   }
@@ -492,6 +538,9 @@ export function runDistributionComparison(
     socialSecurityTaxablePortionPct,
     otherAnnualIncome,
     reverseMortgageAnnualIncome,
+    longTermCareAnnualCost,
+    longTermCareStartAge,
+    longTermCareInflationRatePct,
   } = distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
   const combinedTaxRatePct = federalTaxRatePct + stateTaxRatePct;
@@ -501,6 +550,9 @@ export function runDistributionComparison(
   // stopWorkingAge; clamped to 1 so an already-past claiming age just means
   // benefits start immediately in year 1.
   const socialSecurityStartYear = Math.max(1, socialSecurityClaimingAge - stopWorkingAge + 1);
+  // Same conversion as Social Security's claiming age, applied to Long-Term
+  // Care's independent start age.
+  const longTermCareStartYear = Math.max(1, longTermCareStartAge - stopWorkingAge + 1);
 
   const monteCarlo = runMonteCarloDistribution({
     startingBalance: startingBalanceActual,
@@ -520,6 +572,9 @@ export function runDistributionComparison(
     socialSecurityTaxablePortionPct,
     otherAnnualIncome,
     reverseMortgageAnnualIncome,
+    longTermCareAnnualCost,
+    longTermCareStartYear,
+    longTermCareInflationRatePct,
   });
 
   return { years, monteCarlo };
@@ -557,6 +612,9 @@ export function validateDistributionInputs(
     socialSecurityTaxablePortionPct,
     otherAnnualIncome,
     reverseMortgageAnnualIncome,
+    longTermCareAnnualCost,
+    longTermCareStartAge,
+    longTermCareInflationRatePct,
   } = inputs;
 
   if (currentAge === undefined || Number.isNaN(currentAge) || currentAge < 0) {
@@ -656,6 +714,33 @@ export function validateDistributionInputs(
     errors.push({
       field: 'reverseMortgageAnnualIncome',
       message: 'Reverse mortgage annual income cannot be negative.',
+    });
+  }
+
+  if (longTermCareAnnualCost !== undefined && longTermCareAnnualCost < 0) {
+    errors.push({
+      field: 'longTermCareAnnualCost',
+      message: 'Long-Term Care annual cost cannot be negative.',
+    });
+  }
+
+  if (
+    longTermCareStartAge !== undefined &&
+    (Number.isNaN(longTermCareStartAge) || longTermCareStartAge < 0 || longTermCareStartAge > 100)
+  ) {
+    errors.push({
+      field: 'longTermCareStartAge',
+      message: 'Long-Term Care start age must be between 0 and 100.',
+    });
+  }
+
+  if (
+    longTermCareInflationRatePct !== undefined &&
+    (longTermCareInflationRatePct < 0 || longTermCareInflationRatePct > 0.2)
+  ) {
+    errors.push({
+      field: 'longTermCareInflationRatePct',
+      message: 'Long-Term Care inflation rate must be between 0% and 20%.',
     });
   }
 

@@ -53,6 +53,9 @@ const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
   socialSecurityTaxablePortionPct: 0.85,
   otherAnnualIncome: 0,
   reverseMortgageAnnualIncome: 0,
+  longTermCareAnnualCost: 0,
+  longTermCareStartAge: 80,
+  longTermCareInflationRatePct: 0.05,
 };
 
 function App() {

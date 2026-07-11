@@ -434,6 +434,49 @@ describe('runWithdrawalTrack — Social Security / other income / reverse mortga
     const plain = runWithdrawalTrack(base);
     expect(result.rows[0].grossWithdrawal).toBeLessThan(plain.rows[0].grossWithdrawal);
   });
+
+  it('adds no Long-Term Care cost before its start year', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      longTermCareAnnualCost: 40000,
+      longTermCareStartYear: 3,
+    });
+    expect(result.rows[0].longTermCareCost).toBe(0);
+    expect(result.rows[1].longTermCareCost).toBe(0);
+    expect(result.rows[0].grossWithdrawal).toBeCloseTo(runWithdrawalTrack(base).rows[0].grossWithdrawal, 4);
+  });
+
+  it('adds Long-Term Care as extra SPENDING (increases the withdrawal need) starting at its own start year', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      longTermCareAnnualCost: 40000,
+      longTermCareStartYear: 3,
+    });
+    const plain = runWithdrawalTrack(base);
+    expect(result.rows[2].longTermCareCost).toBeCloseTo(40000, 4);
+    // Unlike income sources, LTC cost INCREASES the required gross withdrawal.
+    expect(result.rows[2].grossWithdrawal).toBeGreaterThan(plain.rows[2].grossWithdrawal);
+  });
+
+  it('inflates Long-Term Care cost at its own (higher) rate, independent of the general inflation rate', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      inflationRatePct: 0.03,
+      longTermCareAnnualCost: 40000,
+      longTermCareStartYear: 1,
+      longTermCareInflationRatePct: 0.06,
+    });
+    expect(result.rows[0].longTermCareCost).toBeCloseTo(40000, 4);
+    expect(result.rows[4].longTermCareCost).toBeCloseTo(40000 * Math.pow(1.06, 4), 4);
+    // Confirm it's NOT using the general 3% inflation rate for this component.
+    expect(result.rows[4].longTermCareCost).not.toBeCloseTo(40000 * Math.pow(1.03, 4), 4);
+  });
+
+  it('is a strict special case: zero Long-Term Care cost behaves identically to the base track', () => {
+    const plain = runWithdrawalTrack(base);
+    const withZeroLtc = runWithdrawalTrack({ ...base, longTermCareAnnualCost: 0 });
+    expect(withZeroLtc.finalBalance).toBeCloseTo(plain.finalBalance, 6);
+  });
 });
 
 describe('runMonteCarloDistribution', () => {
@@ -589,6 +632,9 @@ describe('runDistributionComparison (integration)', () => {
         socialSecurityTaxablePortionPct: 0.85,
         otherAnnualIncome: 0,
         reverseMortgageAnnualIncome: 0,
+        longTermCareAnnualCost: 0,
+        longTermCareStartAge: 80,
+        longTermCareInflationRatePct: 0.05,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -617,6 +663,9 @@ describe('runDistributionComparison (integration)', () => {
       socialSecurityTaxablePortionPct: 0,
       otherAnnualIncome: 0,
       reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
@@ -647,6 +696,9 @@ describe('runDistributionComparison (integration)', () => {
       socialSecurityTaxablePortionPct: 0.85,
       otherAnnualIncome: 0,
       reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
     };
     const withSS = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -663,6 +715,40 @@ describe('runDistributionComparison (integration)', () => {
     expect(withSS.monteCarlo.medianTrialRows[0].grossWithdrawal).toBeLessThan(
       withoutSS.monteCarlo.medianTrialRows[0].grossWithdrawal,
     );
+  });
+
+  it('converts Long-Term Care Start Age into a track-relative start year and increases withdrawals from that year on', () => {
+    const distributionInputs = {
+      currentAge: 40,
+      stopWorkingAge: 65,
+      planThroughAge: 90,
+      annualExpense: 80000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 65,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 40000,
+      longTermCareStartAge: 80, // stopWorkingAge 65 + 15 -> starts in track year 16
+      longTermCareInflationRatePct: 0.05,
+    };
+    const result = runDistributionComparison({
+      startingBalanceActual: 3_000_000,
+      distributionInputs,
+      monteCarloTrials: 60,
+      randomFn: seededRandom(4),
+    });
+    const rows = result.monteCarlo.medianTrialRows;
+    expect(rows[14].longTermCareCost).toBe(0); // year 15, age 79 — not started yet
+    expect(rows[15].longTermCareCost).toBeCloseTo(40000, 4); // year 16, age 80 — starts here
+    expect(rows[15].grossWithdrawal).toBeGreaterThan(rows[14].grossWithdrawal + 30000);
   });
 });
 
@@ -827,5 +913,27 @@ describe('validateDistributionInputs (Section 13.2)', () => {
     );
     expect(errors.some((e) => e.field === 'otherAnnualIncome')).toBe(true);
     expect(errors.some((e) => e.field === 'reverseMortgageAnnualIncome')).toBe(true);
+  });
+
+  it('flags a negative Long-Term Care cost, an out-of-range start age, and an out-of-range LTC inflation rate', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        longTermCareAnnualCost: -1000,
+        longTermCareStartAge: 150,
+        longTermCareInflationRatePct: 0.5,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'longTermCareAnnualCost')).toBe(true);
+    expect(errors.some((e) => e.field === 'longTermCareStartAge')).toBe(true);
+    expect(errors.some((e) => e.field === 'longTermCareInflationRatePct')).toBe(true);
   });
 });

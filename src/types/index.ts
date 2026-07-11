@@ -90,4 +90,10 @@ export interface DistributionInputs {
    * getting for whole life loans.
    */
   reverseMortgageAnnualIncome: number;
+  /** Extra annual spending need (today's dollars) for active/assisted/skilled care, added on top of Annual Expense starting at Long-Term Care Start Age. 0 disables it entirely. */
+  longTermCareAnnualCost: number;
+  /** Age Long-Term Care costs start — independent of Stop-Working Age and Plan Through Age. Runs through the rest of the plan once started (no separate end age). */
+  longTermCareStartAge: number;
+  /** Own inflation rate for Long-Term Care costs, separate from and typically higher than the general Inflation Adjustment rate — real LTC/care costs have historically outpaced general inflation. */
+  longTermCareInflationRatePct: number;
 }

@@ -539,9 +539,12 @@ Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which
 | Social Security Claiming Age | Number | 67 | **Independent of Stop-Working Age** — many people delay claiming past when they stop working |
 | Social Security Taxable Portion (%) | Percentage | 85% | Simplified flat stand-in for the real up-to-85%-taxable sliding-scale IRS rule |
 | Other Annual Income ($) | Dollar amount | $0 | Rents/dividends outside the main account, today's dollars, starting at Stop-Working Age and inflating |
-| Reverse Mortgage Annual Income ($) | Dollar amount | $0 | See 13.6 — simplified, tax-free, placeholder pending Phase 4-style dedicated treatment |
+| Reverse Mortgage Annual Income ($) | Dollar amount | $0 | See 13.6 — simplified, tax-free, held flat in nominal dollars (does NOT inflate, unlike Social Security/Other Income), placeholder pending Phase 4-style dedicated treatment |
+| Long-Term Care Annual Cost ($) | Dollar amount | $0 | See 13.7 — extra spending (not income) added on top of Annual Expense starting at Long-Term Care Start Age. 0 disables it |
+| Long-Term Care Start Age | Number | 80 | Independent of Stop-Working Age/Plan Through Age. Runs through the rest of the plan once started (no separate end age) |
+| Long-Term Care Inflation Rate (%) | Percentage | 5% | Own inflation rate for LTC costs, separate from and typically higher than the general Inflation Adjustment rate |
 
-All dollar income fields (Social Security, Other Income, Reverse Mortgage) are **annual**, matching Annual Expense's convention.
+All dollar income fields (Social Security, Other Income, Reverse Mortgage) and Long-Term Care Annual Cost are **annual**, matching Annual Expense's convention.
 
 **Validation rule:** `starting_year + (stop_working_age - current_age)` must fall within (or at most one year past) Phase 1's simulated accumulation window, so the two phases stay temporally consistent. Retiring before accumulation starts, or long enough after it ends that there's an unmodeled growth gap, is rejected with a clear message.
 
@@ -578,23 +581,35 @@ Social Security starts at its own **Claiming Age** (independent of Stop-Working 
 
 ### 13.6 Reverse Mortgage — Simplified Placeholder
 
-Modeled as a flat, tax-free annual income stream only. **Deliberately excludes** home value, loan balance, and interest accrual — a full model would need those, but this is a placeholder pending the same dedicated treatment planned for Phase 4's whole life policy loans (Section 14), not a finished reverse-mortgage feature.
+Modeled as a flat, tax-free annual income stream only, held **flat in nominal dollars for the rest of the horizon — it does NOT inflate**, unlike Social Security/Other Income. This matches how a real reverse mortgage "tenure payment" actually works (a fixed nominal amount for life, no cost-of-living adjustment). **Deliberately excludes** home value, loan balance, and interest accrual — a full model would need those, but this is a placeholder pending the same dedicated treatment planned for Phase 4's whole life policy loans (Section 14), not a finished reverse-mortgage feature.
 
-### 13.7 Outputs
+### 13.7 Long-Term Care — Flat Extra Expense
+
+Models rising care costs (active adult living / assisted living / skilled nursing) as **extra spending**, not income — added on top of Annual Expense starting at Long-Term Care Start Age (default 80), with its **own inflation rate** (default 5%, higher than the general Inflation Adjustment rate, since real LTC/care costs have historically outpaced general inflation). Runs through the rest of the plan once started (no separate end age — considered and explicitly rejected as an extra input in favor of the simpler "runs to Plan Through Age" default). `longTermCareAnnualCost = 0` disables it entirely.
+
+Because this adds to the net spend target rather than offsetting it, it flows through the *existing* tax-grossup logic (13.5) automatically — no new tax-treatment code was needed, unlike the income sources.
+
+**Deliberate simplification, flagged as a known limitation:** this treats LTC cost as something everyone incurs steadily from the start age onward. Real LTC risk is lumpy — roughly 70% of 65-year-olds will need *some* care, but many need none, and a smaller group needs many years of expensive skilled nursing care. A flat "add $X/year from age Y" model doesn't capture that variance (won't show a $0-LTC-cost outcome, and may understate the worst-case tail of extended skilled care). Considered and rejected for now: a probabilistic per-trial model (each Monte Carlo trial independently draws whether/when a care event starts) — more realistic but a meaningfully bigger lift, layering a second random process on top of the market-return randomness already being modeled. Also considered and rejected: tiered cost stages (independent → assisted → skilled) — adds transition-timing complexity without a clear payoff at this stage. No account-type split either — LTC (like everything else in Distribution) assumes one undifferentiated portfolio.
+
+### 13.8 Outputs
 
 - **Monte Carlo Success Rate:** % of trials that survived the full horizon without depleting
-- **Median Outcome:** the middle-ranked trial's depletion year, or "lasted through age X"
-- **Worst-Decile Outcome:** the depletion year at the 10th percentile of outcomes — a bad-case reference point, not the single worst trial
-- **Chart:** the single trial closest to the median outcome, plotted as Total / S&P 500 Portion (stock) / Cash Bucket lines, anchored at the true pre-withdrawal starting balance (a "year 0" point) so the line doesn't visibly jump on recompute
-- **Year-by-Year table:** full breakdown for that same median trial — Year, Age, Beginning Balance, S&P Return, Gross Withdrawal, Social Security, Other Income, Reverse Mortgage, Tax Owed, Stock Balance, Cash Balance, Refilled?, Ending Balance
+- **Median Outcome:** the depletion year of the trial ranked at the 50th percentile across ALL trials (survivors included, ranked as better than any failure) — the exact same trial the chart/table show, so they can never disagree. Shows "Lasted through age X" whenever that trial is itself a survivor (i.e. success rate ≥ 50%)
+- **Worst-Decile Outcome:** same ranking, at the 10th-percentile position — a bad-case reference point, not the single worst trial. Null (shown as "fewer than 10% of trials depleted") whenever that position is also a survivor
+- **Chart:** the single trial ranked at the 50th percentile, plotted as Total / S&P 500 Portion (stock) / Cash Bucket lines, anchored at the true pre-withdrawal starting balance (a "year 0" point) so the line doesn't visibly jump on recompute
+- **Year-by-Year table:** full breakdown for that same trial — Year, Age, Beginning Balance, S&P Return, Gross Withdrawal, Social Security, Other Income, Reverse Mortgage, LTC Cost, Tax Owed, Stock Balance, Cash Balance, Refilled?, Ending Balance
 
-### 13.8 Resolved Decisions Log
+### 13.9 Resolved Decisions Log
 
 1. ✅ Distribution basis: fixed-dollar, inflation-adjusted, tax-grossed-up net spend target (13.3), not a %-of-balance rate
 2. ✅ Volatility modeling: Monte Carlo bootstrap over the real historical return pool (13.4), not a smooth Average-Rate scenario or a single replayed historical sequence — both considered, and the Average-Rate scenario was built then removed as low-value
 3. ✅ Portfolio allocation stays 100% S&P 500 in Distribution — a stock/bond glide path was explored and reverted before landing; risk mitigation instead comes from the cash bucket (13.3)
 4. ✅ Starting balance carries over from Phase 1's **pre-tax** `actualBalance` at whichever accumulation year corresponds to Stop-Working Age (not always the final year), since Phase 3 applies its own withdrawal-based tax treatment year by year — starting from an already-taxed lump sum would double-tax the money
 5. ✅ Tax model: combined Federal + State flat rate, pooled across all taxable income sources above one standard deduction (13.5) — not the placeholder end-of-period haircut Phase 1 uses
+6. ✅ Median/Worst-Decile Outcome bugfix: originally computed as percentiles of the failed-trials-only subset, independent of the trial actually shown in the table/chart — meant the Summary could report "Depleted at age X" while the table's representative trial visibly survived the full horizon whenever success rate wasn't ~50%. Fixed to read both stats directly off the same full-population trial ranking used for the chart/table (13.8)
+7. ✅ Reverse Mortgage bugfix: was inflating year over year like Social Security/Other Income; corrected to hold flat in nominal dollars, matching how a real reverse mortgage tenure payment works (13.6)
+8. ✅ Long-Term Care: flat extra expense with its own (higher) inflation rate, runs to Plan Through Age once started — deliberately simpler than a probabilistic or tiered-care model (13.7)
+9. **Not yet built, discussed and scoped:** Required Minimum Distributions (RMDs) — forcing withdrawals up to the IRS Uniform Lifetime Table minimum starting at age 73/75 (depending on birth year, per SECURE 2.0), assuming the whole portfolio is tax-deferred. Scoped but not implemented as of this writing.
 
 ---
 

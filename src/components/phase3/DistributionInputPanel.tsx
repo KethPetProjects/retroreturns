@@ -199,6 +199,44 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
             onChange={(v) => update('reverseMortgageAnnualIncome', v)}
           />
         </Field>
+
+        <Field
+          label="Long-Term Care Annual Cost ($)"
+          error={fieldError(validationErrors, 'longTermCareAnnualCost')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            step={1000}
+            value={inputs.longTermCareAnnualCost}
+            onChange={(v) => update('longTermCareAnnualCost', v)}
+          />
+        </Field>
+
+        <Field label="Long-Term Care Start Age" error={fieldError(validationErrors, 'longTermCareStartAge')}>
+          <NumberField
+            className="input"
+            min={0}
+            max={100}
+            value={inputs.longTermCareStartAge}
+            onChange={(v) => update('longTermCareStartAge', v)}
+          />
+        </Field>
+
+        <Field
+          label="Long-Term Care Inflation Rate (%)"
+          error={fieldError(validationErrors, 'longTermCareInflationRatePct')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            max={20}
+            step={0.5}
+            decimal
+            value={inputs.longTermCareInflationRatePct * 100}
+            onChange={(v) => update('longTermCareInflationRatePct', v / 100)}
+          />
+        </Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">
         Annual Expense is the take-home amount you want to actually spend — each year's withdrawal is
@@ -224,6 +262,14 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         reverse mortgage tenure payment works (no home value, loan balance, or interest accrual
         tracked) — a placeholder pending the same dedicated treatment planned for whole life
         policy loans.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Long-Term Care Annual Cost adds extra spending on top of Annual Expense starting at Long-Term
+        Care Start Age, growing at its own (typically higher) inflation rate for the rest of the plan.
+        Set the cost to $0 to disable it entirely. This models active/assisted/skilled care as one flat
+        ongoing cost rather than distinct stages, and assumes everyone incurs it from that age onward —
+        a simplification of real long-term care risk, which is much more variable (many people never
+        need it, some need many years of expensive skilled nursing care).
       </p>
     </section>
   );
