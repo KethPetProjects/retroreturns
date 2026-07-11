@@ -26,6 +26,9 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 'Beg. Balance',
                 'S&P Return',
                 'Gross Withdrawal',
+                'Social Security',
+                'Other Income',
+                'Reverse Mortgage',
                 'Tax Owed',
                 'Stock Balance',
                 'Cash Balance',
@@ -65,6 +68,15 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5">
                   {formatDollars(row.grossWithdrawal)}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
+                  {row.socialSecurityIncome > 0 ? formatDollars(row.socialSecurityIncome) : '—'}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
+                  {row.otherIncome > 0 ? formatDollars(row.otherIncome) : '—'}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
+                  {row.reverseMortgageIncome > 0 ? formatDollars(row.reverseMortgageIncome) : '—'}
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
                   {formatDollars(row.taxOwed)}

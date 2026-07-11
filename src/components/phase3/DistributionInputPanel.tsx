@@ -74,15 +74,27 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
           />
         </Field>
 
-        <Field label="Tax Rate (%)" error={fieldError(validationErrors, 'taxRatePct')}>
+        <Field label="Federal Tax Rate (%)" error={fieldError(validationErrors, 'federalTaxRatePct')}>
           <NumberField
             className="input"
             min={0}
             max={50}
             step={0.5}
             decimal
-            value={inputs.taxRatePct * 100}
-            onChange={(v) => update('taxRatePct', v / 100)}
+            value={inputs.federalTaxRatePct * 100}
+            onChange={(v) => update('federalTaxRatePct', v / 100)}
+          />
+        </Field>
+
+        <Field label="State Tax Rate (%)" error={fieldError(validationErrors, 'stateTaxRatePct')}>
+          <NumberField
+            className="input"
+            min={0}
+            max={15}
+            step={0.5}
+            decimal
+            value={inputs.stateTaxRatePct * 100}
+            onChange={(v) => update('stateTaxRatePct', v / 100)}
           />
         </Field>
 
@@ -123,6 +135,70 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
             onChange={(v) => update('cashInterestRatePct', v / 100)}
           />
         </Field>
+
+        <Field
+          label="Social Security Annual Benefit ($)"
+          error={fieldError(validationErrors, 'socialSecurityAnnualBenefit')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            step={1000}
+            value={inputs.socialSecurityAnnualBenefit}
+            onChange={(v) => update('socialSecurityAnnualBenefit', v)}
+          />
+        </Field>
+
+        <Field
+          label="Social Security Claiming Age"
+          error={fieldError(validationErrors, 'socialSecurityClaimingAge')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            max={100}
+            value={inputs.socialSecurityClaimingAge}
+            onChange={(v) => update('socialSecurityClaimingAge', v)}
+          />
+        </Field>
+
+        <Field
+          label="Social Security Taxable Portion (%)"
+          error={fieldError(validationErrors, 'socialSecurityTaxablePortionPct')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            max={100}
+            step={5}
+            decimal
+            value={inputs.socialSecurityTaxablePortionPct * 100}
+            onChange={(v) => update('socialSecurityTaxablePortionPct', v / 100)}
+          />
+        </Field>
+
+        <Field label="Other Annual Income ($)" error={fieldError(validationErrors, 'otherAnnualIncome')}>
+          <NumberField
+            className="input"
+            min={0}
+            step={1000}
+            value={inputs.otherAnnualIncome}
+            onChange={(v) => update('otherAnnualIncome', v)}
+          />
+        </Field>
+
+        <Field
+          label="Reverse Mortgage Annual Income ($)"
+          error={fieldError(validationErrors, 'reverseMortgageAnnualIncome')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            step={1000}
+            value={inputs.reverseMortgageAnnualIncome}
+            onChange={(v) => update('reverseMortgageAnnualIncome', v)}
+          />
+        </Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">
         Annual Expense is the take-home amount you want to actually spend — each year's withdrawal is
@@ -135,6 +211,17 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         never forces a stock sale. The bucket is only topped back up from stocks in years the
         market was up; in down years it just drains, which is the whole point (it protects you
         from selling stocks low). Set to 0 to disable and withdraw straight from stocks.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Social Security, Other Income, and Reverse Mortgage all reduce how much needs to be
+        withdrawn from the portfolio each year. Social Security starts at its own Claiming Age
+        (independent of Stop-Working Age) and only a flat percentage of it counts as taxable
+        income — a simplification of the real up-to-85%-taxable sliding scale. Federal and State
+        Tax Rate are combined into one flat rate applied to portfolio withdrawals, the taxable
+        portion of Social Security, and Other Income together, above one Standard Deduction — the
+        same pooled way a real tax return works. Reverse Mortgage is treated as a simple tax-free
+        income stream (no home value, loan balance, or interest accrual tracked) — a placeholder
+        pending the same dedicated treatment planned for whole life policy loans.
       </p>
     </section>
   );

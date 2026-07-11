@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   grossUpWithdrawal,
   computeTaxOwed,
+  solveGrossWithdrawal,
+  computeCombinedTaxOwed,
   runWithdrawalTrack,
   runMonteCarloDistribution,
   runDistributionComparison,
@@ -77,22 +79,95 @@ describe('grossUpWithdrawal / computeTaxOwed (net-to-gross round trip)', () => {
   });
 });
 
+describe('solveGrossWithdrawal / computeCombinedTaxOwed (multi-income-source generalization)', () => {
+  it('matches grossUpWithdrawal/computeTaxOwed exactly when there is no other income', () => {
+    const net = 80000;
+    const standardDeduction = 15000;
+    const taxRatePct = 0.2;
+    expect(solveGrossWithdrawal(net, standardDeduction, taxRatePct)).toBeCloseTo(
+      grossUpWithdrawal(net, standardDeduction, taxRatePct),
+      6,
+    );
+  });
+
+  it('reduces the required portfolio withdrawal by tax-free fixed income (e.g. reverse mortgage)', () => {
+    const withoutFixed = solveGrossWithdrawal(80000, 15000, 0.2, 0, 0);
+    const withFixed = solveGrossWithdrawal(80000, 15000, 0.2, 0, 20000);
+    expect(withFixed).toBeLessThan(withoutFixed);
+    // Reduces the gross need by roughly the fixed income amount (not exactly,
+    // because less gross withdrawal also means less tax owed on it).
+    expect(withoutFixed - withFixed).toBeGreaterThan(0);
+  });
+
+  it('taxes pooled taxable fixed income (e.g. taxable Social Security) alongside the portfolio withdrawal', () => {
+    const gross = solveGrossWithdrawal(80000, 15000, 0.2, 20000, 20000);
+    const tax = computeCombinedTaxOwed(gross, 15000, 0.2, 20000);
+    // Total spendable (gross + fixed income - tax) should net exactly the target.
+    expect(gross + 20000 - tax).toBeCloseTo(80000, 6);
+  });
+
+  it('round-trips net = gross + fixedIncome - tax across a range of taxable/tax-free splits', () => {
+    const cases = [
+      { taxableFixedIncome: 0, fixedIncome: 0 },
+      { taxableFixedIncome: 10000, fixedIncome: 10000 },
+      { taxableFixedIncome: 0, fixedIncome: 15000 }, // all tax-free (reverse mortgage only)
+      { taxableFixedIncome: 25000, fixedIncome: 30000 }, // taxable SS portion + tax-free reverse mortgage mixed in
+    ];
+    for (const { taxableFixedIncome, fixedIncome } of cases) {
+      const net = 90000;
+      const standardDeduction = 15000;
+      const taxRatePct = 0.25;
+      const gross = solveGrossWithdrawal(net, standardDeduction, taxRatePct, taxableFixedIncome, fixedIncome);
+      const tax = computeCombinedTaxOwed(gross, standardDeduction, taxRatePct, taxableFixedIncome);
+      expect(gross + fixedIncome - tax).toBeCloseTo(net, 6);
+    }
+  });
+
+  it('returns 0 when fixed income alone already covers the net expense target', () => {
+    expect(solveGrossWithdrawal(50000, 15000, 0.2, 0, 80000)).toBe(0);
+  });
+});
+
 describe('runWithdrawalTrack (Section 13.3)', () => {
   it('grows the net expense target and standard deduction by inflation each year', () => {
-    const result = runWithdrawalTrack(1_000_000, [0.05, 0.05, 0.05], 80000, 0.03, 15000, 0, 0);
+    const result = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: [0.05, 0.05, 0.05],
+      annualExpense: 80000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0,
+      feePct: 0,
+    });
     expect(result.rows[0].netExpenseTarget).toBeCloseTo(80000, 4);
     expect(result.rows[1].netExpenseTarget).toBeCloseTo(80000 * 1.03, 4);
     expect(result.rows[2].netExpenseTarget).toBeCloseTo(80000 * 1.03 * 1.03, 4);
   });
 
   it('applies that year\'s return to the balance after the withdrawal, not before', () => {
-    const result = runWithdrawalTrack(1_000_000, [0.1], 100000, 0, 0, 0, 0);
+    const result = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: [0.1],
+      annualExpense: 100000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+    });
     // (1,000,000 - 100,000) * 1.1 = 990,000
     expect(result.rows[0].endingBalance).toBeCloseTo(990000, 2);
   });
 
   it('stops the simulation the year the balance hits zero, not before or after', () => {
-    const result = runWithdrawalTrack(100000, [0, 0, 0, 0, 0], 30000, 0, 0, 0, 0);
+    const result = runWithdrawalTrack({
+      startingBalance: 100000,
+      returns: [0, 0, 0, 0, 0],
+      annualExpense: 30000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+    });
     // 100k -30k=70k -30k=40k -30k=10k -30k=-20k -> depletes in year 4
     expect(result.depletedAtYear).toBe(4);
     expect(result.rows).toHaveLength(4);
@@ -100,21 +175,61 @@ describe('runWithdrawalTrack (Section 13.3)', () => {
   });
 
   it('reports no depletion when the balance survives the full horizon', () => {
-    const result = runWithdrawalTrack(1_000_000, new Array(30).fill(0.07), 30000, 0.03, 15000, 0.15, 0.0003);
+    const result = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: new Array(30).fill(0.07),
+      annualExpense: 30000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+    });
     expect(result.depletedAtYear).toBeNull();
     expect(result.finalBalance).toBeGreaterThan(0);
   });
 
   it('a bad early sequence depletes faster than the same average rate spread evenly (sequence-of-returns risk)', () => {
     // Same three returns, different order: -30% first vs. last.
-    const badFirst = runWithdrawalTrack(500000, [-0.3, 0.1, 0.1], 60000, 0, 0, 0, 0);
-    const badLast = runWithdrawalTrack(500000, [0.1, 0.1, -0.3], 60000, 0, 0, 0, 0);
+    const badFirst = runWithdrawalTrack({
+      startingBalance: 500000,
+      returns: [-0.3, 0.1, 0.1],
+      annualExpense: 60000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+    });
+    const badLast = runWithdrawalTrack({
+      startingBalance: 500000,
+      returns: [0.1, 0.1, -0.3],
+      annualExpense: 60000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+    });
     expect(badFirst.finalBalance).toBeLessThan(badLast.finalBalance);
   });
 
   it('deducts tax-driven gross-up so a taxed track ends with less money than an untaxed one for the same net spend', () => {
-    const noTax = runWithdrawalTrack(1_000_000, new Array(10).fill(0.05), 40000, 0, 15000, 0, 0);
-    const withTax = runWithdrawalTrack(1_000_000, new Array(10).fill(0.05), 40000, 0, 15000, 0.25, 0);
+    const noTax = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: new Array(10).fill(0.05),
+      annualExpense: 40000,
+      inflationRatePct: 0,
+      standardDeduction: 15000,
+      taxRatePct: 0,
+      feePct: 0,
+    });
+    const withTax = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: new Array(10).fill(0.05),
+      annualExpense: 40000,
+      inflationRatePct: 0,
+      standardDeduction: 15000,
+      taxRatePct: 0.25,
+      feePct: 0,
+    });
     expect(noTax.depletedAtYear).toBeNull();
     expect(withTax.depletedAtYear).toBeNull();
     expect(withTax.finalBalance).toBeLessThan(noTax.finalBalance);
@@ -125,7 +240,17 @@ describe('runWithdrawalTrack — cash bucket strategy', () => {
   it('carves out cashBucketYears worth of upcoming withdrawals into cash up front', () => {
     // No inflation/tax/deduction, so each year's gross withdrawal is exactly
     // the annual expense — the year-1 bucket target is just 2x that.
-    const result = runWithdrawalTrack(1_000_000, [0.1, 0.1], 50000, 0, 0, 0, 0, 2, 0);
+    const result = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: [0.1, 0.1],
+      annualExpense: 50000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      cashBucketYears: 2,
+      cashInterestRatePct: 0,
+    });
     expect(result.rows[0].beginningBalance).toBe(1_000_000);
     // Bucket = 2 x 50,000 = 100,000 carved out; stock gets the remaining 900,000.
     // The withdrawal for year 1 comes entirely from cash, so before any
@@ -139,7 +264,17 @@ describe('runWithdrawalTrack — cash bucket strategy', () => {
   it('does not refill the bucket after a down year, letting it drain instead', () => {
     // Bucket = 2 years x 50,000 = 100,000 initially, stock = 900,000.
     // Year 1: down year (-20%) -> should NOT refill even though cash needs it.
-    const result = runWithdrawalTrack(1_000_000, [-0.2, -0.2], 50000, 0, 0, 0, 0, 2, 0);
+    const result = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: [-0.2, -0.2],
+      annualExpense: 50000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      cashBucketYears: 2,
+      cashInterestRatePct: 0,
+    });
     expect(result.rows[0].refilled).toBe(false);
     expect(result.rows[1].refilled).toBe(false);
     // Cash bucket should have shrunk (50,000 withdrawn in year 1, no refill,
@@ -149,7 +284,17 @@ describe('runWithdrawalTrack — cash bucket strategy', () => {
   });
 
   it('refills the bucket back toward its target after an up year', () => {
-    const result = runWithdrawalTrack(1_000_000, [-0.1, 0.15, 0.1], 50000, 0, 0, 0, 0, 2, 0);
+    const result = runWithdrawalTrack({
+      startingBalance: 1_000_000,
+      returns: [-0.1, 0.15, 0.1],
+      annualExpense: 50000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      cashBucketYears: 2,
+      cashInterestRatePct: 0,
+    });
     expect(result.rows[0].refilled).toBe(false); // down year, no refill
     expect(result.rows[1].refilled).toBe(true); // up year, refill happens
     // After refilling in year 2, cash should be meaningfully higher than
@@ -161,7 +306,17 @@ describe('runWithdrawalTrack — cash bucket strategy', () => {
     // A long string of down years should eventually drain a small bucket
     // and force withdrawals straight from stock — the strategy shouldn't
     // silently fail to withdraw at all.
-    const result = runWithdrawalTrack(500000, [-0.1, -0.1, -0.1, -0.1, -0.1], 80000, 0, 0, 0, 0, 1, 0);
+    const result = runWithdrawalTrack({
+      startingBalance: 500000,
+      returns: [-0.1, -0.1, -0.1, -0.1, -0.1],
+      annualExpense: 80000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      cashBucketYears: 1,
+      cashInterestRatePct: 0,
+    });
     // Bucket target = 1 year = 80,000. After the bucket is exhausted, later
     // years must pull from stock even without a refill, so stockBalance
     // should be actively decreasing beyond just market losses.
@@ -170,20 +325,102 @@ describe('runWithdrawalTrack — cash bucket strategy', () => {
   });
 
   it('behaves identically to a plain (bucket-disabled) withdrawal when cashBucketYears is 0', () => {
-    const withoutBucket = runWithdrawalTrack(1_000_000, [0.08, -0.05, 0.12], 60000, 0.03, 15000, 0.15, 0.0003);
-    const explicitlyZero = runWithdrawalTrack(
-      1_000_000,
-      [0.08, -0.05, 0.12],
-      60000,
-      0.03,
-      15000,
-      0.15,
-      0.0003,
-      0,
-      0,
-    );
+    const base = {
+      startingBalance: 1_000_000,
+      returns: [0.08, -0.05, 0.12],
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+    };
+    const withoutBucket = runWithdrawalTrack(base);
+    const explicitlyZero = runWithdrawalTrack({ ...base, cashBucketYears: 0, cashInterestRatePct: 0 });
     expect(explicitlyZero.finalBalance).toBeCloseTo(withoutBucket.finalBalance, 6);
     expect(explicitlyZero.rows[0].endingBalance).toBeCloseTo(withoutBucket.rows[0].endingBalance, 6);
+  });
+});
+
+describe('runWithdrawalTrack — Social Security / other income / reverse mortgage', () => {
+  const base = {
+    startingBalance: 1_000_000,
+    returns: [0.05, 0.05, 0.05, 0.05, 0.05],
+    annualExpense: 80000,
+    inflationRatePct: 0.03,
+    standardDeduction: 15000,
+    taxRatePct: 0.2,
+    feePct: 0,
+  };
+
+  it('is a strict special case: all-zero income fields behave identically to the base track', () => {
+    const plain = runWithdrawalTrack(base);
+    const withZeros = runWithdrawalTrack({
+      ...base,
+      socialSecurityAnnualBenefit: 0,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+    });
+    expect(withZeros.finalBalance).toBeCloseTo(plain.finalBalance, 6);
+    expect(withZeros.rows[0].grossWithdrawal).toBeCloseTo(plain.rows[0].grossWithdrawal, 6);
+  });
+
+  it('reduces the required gross portfolio withdrawal once Social Security starts', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      socialSecurityAnnualBenefit: 20000,
+      socialSecurityStartYear: 1,
+      socialSecurityTaxablePortionPct: 0.85,
+    });
+    const plain = runWithdrawalTrack(base);
+    expect(result.rows[0].grossWithdrawal).toBeLessThan(plain.rows[0].grossWithdrawal);
+    expect(result.rows[0].socialSecurityIncome).toBeCloseTo(20000, 4);
+  });
+
+  it('withholds Social Security until its own start year, independent of retirement start', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      socialSecurityAnnualBenefit: 20000,
+      socialSecurityStartYear: 3, // starts in year 3, not year 1
+      socialSecurityTaxablePortionPct: 0.85,
+    });
+    expect(result.rows[0].socialSecurityIncome).toBe(0);
+    expect(result.rows[1].socialSecurityIncome).toBe(0);
+    expect(result.rows[2].socialSecurityIncome).toBeCloseTo(20000, 4);
+  });
+
+  it('inflates Social Security from its own start year, not from year 1', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      socialSecurityAnnualBenefit: 20000,
+      socialSecurityStartYear: 3,
+      socialSecurityTaxablePortionPct: 0.85,
+    });
+    // Year 3 (the first claimed year) should be exactly 20,000, not already inflated.
+    expect(result.rows[2].socialSecurityIncome).toBeCloseTo(20000, 4);
+    expect(result.rows[3].socialSecurityIncome).toBeCloseTo(20000 * 1.03, 4);
+  });
+
+  it('excludes reverse mortgage draws from taxable income entirely', () => {
+    const withReverseMortgage = runWithdrawalTrack({
+      ...base,
+      reverseMortgageAnnualIncome: 30000,
+    });
+    // Tax owed should reflect only the (smaller) portfolio withdrawal, not
+    // the reverse mortgage draw — spendable cash goes up by close to the
+    // full 30,000 rather than a tax-reduced amount.
+    const plain = runWithdrawalTrack(base);
+    expect(withReverseMortgage.rows[0].taxOwed).toBeLessThan(plain.rows[0].taxOwed);
+    expect(withReverseMortgage.rows[0].reverseMortgageIncome).toBeCloseTo(30000, 4);
+  });
+
+  it('pools other income into the same combined tax calculation as the portfolio withdrawal', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      otherAnnualIncome: 15000,
+    });
+    expect(result.rows[0].otherIncome).toBeCloseTo(15000, 4);
+    const plain = runWithdrawalTrack(base);
+    expect(result.rows[0].grossWithdrawal).toBeLessThan(plain.rows[0].grossWithdrawal);
   });
 });
 
@@ -198,71 +435,71 @@ describe('runMonteCarloDistribution', () => {
   }
 
   it('reports 100% success when returns are always strongly positive relative to spend', () => {
-    const result = runMonteCarloDistribution(
-      5_000_000,
-      [0.15, 0.18, 0.12, 0.2],
-      20,
-      30000,
-      0.03,
-      15000,
-      0.15,
-      0.0003,
-      200,
-      seededRandom(42),
-    );
+    const result = runMonteCarloDistribution({
+      startingBalance: 5_000_000,
+      historicalReturnPool: [0.15, 0.18, 0.12, 0.2],
+      years: 20,
+      annualExpense: 30000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+      trials: 200,
+      randomFn: seededRandom(42),
+    });
     expect(result.successRatePct).toBe(1);
     expect(result.depletionYears).toHaveLength(0);
     expect(result.medianDepletionYear).toBeNull();
   });
 
   it('reports a low success rate when spend far exceeds what the balance can sustain', () => {
-    const result = runMonteCarloDistribution(
-      50000,
-      [0.05, -0.05, 0.03, -0.1, 0.08],
-      30,
-      40000,
-      0.03,
-      15000,
-      0.15,
-      0.0003,
-      200,
-      seededRandom(7),
-    );
+    const result = runMonteCarloDistribution({
+      startingBalance: 50000,
+      historicalReturnPool: [0.05, -0.05, 0.03, -0.1, 0.08],
+      years: 30,
+      annualExpense: 40000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+      trials: 200,
+      randomFn: seededRandom(7),
+    });
     expect(result.successRatePct).toBeLessThan(0.2);
     expect(result.depletionYears.length).toBeGreaterThan(0);
   });
 
   it('produces a worst-decile depletion year no later than the median depletion year', () => {
-    const result = runMonteCarloDistribution(
-      800000,
-      [0.15, -0.2, 0.1, -0.05, 0.2, 0.03, -0.15, 0.12],
-      30,
-      60000,
-      0.03,
-      15000,
-      0.15,
-      0.0003,
-      500,
-      seededRandom(99),
-    );
+    const result = runMonteCarloDistribution({
+      startingBalance: 800000,
+      historicalReturnPool: [0.15, -0.2, 0.1, -0.05, 0.2, 0.03, -0.15, 0.12],
+      years: 30,
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+      trials: 500,
+      randomFn: seededRandom(99),
+    });
     if (result.worstDecileDepletionYear !== null && result.medianDepletionYear !== null) {
       expect(result.worstDecileDepletionYear).toBeLessThanOrEqual(result.medianDepletionYear);
     }
   });
 
   it('returns a medianTrialRows path whose length is consistent with its own outcome', () => {
-    const result = runMonteCarloDistribution(
-      800000,
-      [0.15, -0.2, 0.1, -0.05, 0.2, 0.03, -0.15, 0.12],
-      30,
-      60000,
-      0.03,
-      15000,
-      0.15,
-      0.0003,
-      300,
-      seededRandom(3),
-    );
+    const result = runMonteCarloDistribution({
+      startingBalance: 800000,
+      historicalReturnPool: [0.15, -0.2, 0.1, -0.05, 0.2, 0.03, -0.15, 0.12],
+      years: 30,
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+      trials: 300,
+      randomFn: seededRandom(3),
+    });
     expect(result.medianTrialRows.length).toBeGreaterThan(0);
     expect(result.medianTrialRows.length).toBeLessThanOrEqual(30);
   });
@@ -287,10 +524,16 @@ describe('runDistributionComparison (integration)', () => {
         annualExpense: 80000,
         inflationRatePct: 0.03,
         standardDeduction: 15000,
-        taxRatePct: 0.15,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0,
         managementFeePct: 0.0003,
         cashBucketYears: 0,
         cashInterestRatePct: 0,
+        socialSecurityAnnualBenefit: 0,
+        socialSecurityClaimingAge: 67,
+        socialSecurityTaxablePortionPct: 0.85,
+        otherAnnualIncome: 0,
+        reverseMortgageAnnualIncome: 0,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -309,10 +552,16 @@ describe('runDistributionComparison (integration)', () => {
       annualExpense: 50000, // deliberately huge relative to the tiny actual balance below
       inflationRatePct: 0,
       standardDeduction: 0,
-      taxRatePct: 0,
+      federalTaxRatePct: 0,
+      stateTaxRatePct: 0,
       managementFeePct: 0,
       cashBucketYears: 0,
       cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 65,
+      socialSecurityTaxablePortionPct: 0,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
@@ -323,6 +572,42 @@ describe('runDistributionComparison (integration)', () => {
     // A tiny starting balance against a much larger annual expense should fail
     // in nearly every trial, regardless of the specific random returns drawn.
     expect(lowActualStart.monteCarlo.successRatePct).toBeLessThan(0.2);
+  });
+
+  it('combines federal + state tax rates and pools Social Security to reduce the withdrawal need', () => {
+    const distributionInputs = {
+      currentAge: 40,
+      stopWorkingAge: 65,
+      planThroughAge: 90,
+      annualExpense: 80000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 25000,
+      socialSecurityClaimingAge: 65,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+    };
+    const withSS = runDistributionComparison({
+      startingBalanceActual: 1_500_000,
+      distributionInputs,
+      monteCarloTrials: 50,
+      randomFn: seededRandom(2),
+    });
+    const withoutSS = runDistributionComparison({
+      startingBalanceActual: 1_500_000,
+      distributionInputs: { ...distributionInputs, socialSecurityAnnualBenefit: 0 },
+      monteCarloTrials: 50,
+      randomFn: seededRandom(2),
+    });
+    expect(withSS.monteCarlo.medianTrialRows[0].grossWithdrawal).toBeLessThan(
+      withoutSS.monteCarlo.medianTrialRows[0].grossWithdrawal,
+    );
   });
 });
 
@@ -337,7 +622,8 @@ describe('validateDistributionInputs (Section 13.2)', () => {
         planThroughAge: 95,
         annualExpense: 80000,
         standardDeduction: 15000,
-        taxRatePct: 0.15,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
         managementFeePct: 0.0003,
       },
       phase1,
@@ -355,7 +641,8 @@ describe('validateDistributionInputs (Section 13.2)', () => {
         planThroughAge: 95,
         annualExpense: 80000,
         standardDeduction: 15000,
-        taxRatePct: 0.15,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
         managementFeePct: 0.0003,
       },
       phase1,
@@ -371,7 +658,8 @@ describe('validateDistributionInputs (Section 13.2)', () => {
         planThroughAge: 95,
         annualExpense: 80000,
         standardDeduction: 15000,
-        taxRatePct: 0.15,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
         managementFeePct: 0.0003,
       },
       phase1,
@@ -387,7 +675,8 @@ describe('validateDistributionInputs (Section 13.2)', () => {
         planThroughAge: 95,
         annualExpense: 80000,
         standardDeduction: 15000,
-        taxRatePct: 0.15,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
         managementFeePct: 0.0003,
       },
       phase1,
@@ -403,7 +692,8 @@ describe('validateDistributionInputs (Section 13.2)', () => {
         planThroughAge: 65,
         annualExpense: 80000,
         standardDeduction: 15000,
-        taxRatePct: 0.15,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
         managementFeePct: 0.0003,
       },
       phase1,
@@ -420,11 +710,67 @@ describe('validateDistributionInputs (Section 13.2)', () => {
         planThroughAge: 95,
         annualExpense: 0,
         standardDeduction: 15000,
-        taxRatePct: 0.15,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
         managementFeePct: 0.0003,
       },
       phase1,
     );
     expect(errors.some((e) => e.field === 'annualExpense')).toBe(true);
+  });
+
+  it('flags a combined federal + state tax rate that reaches 100%', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.5,
+        stateTaxRatePct: 0.5,
+        managementFeePct: 0.0003,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'stateTaxRatePct')).toBe(true);
+  });
+
+  it('flags an out-of-range Social Security taxable portion', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        socialSecurityTaxablePortionPct: 1.5,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'socialSecurityTaxablePortionPct')).toBe(true);
+  });
+
+  it('flags negative other income and reverse mortgage income', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        otherAnnualIncome: -1000,
+        reverseMortgageAnnualIncome: -1000,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'otherAnnualIncome')).toBe(true);
+    expect(errors.some((e) => e.field === 'reverseMortgageAnnualIncome')).toBe(true);
   });
 });

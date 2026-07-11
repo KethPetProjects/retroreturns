@@ -43,10 +43,16 @@ const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
   annualExpense: 80000,
   inflationRatePct: 0.03,
   standardDeduction: 15000,
-  taxRatePct: 0.15,
+  federalTaxRatePct: 0.15,
+  stateTaxRatePct: 0.05,
   managementFeePct: 0.0003,
   cashBucketYears: 2,
   cashInterestRatePct: 0.025,
+  socialSecurityAnnualBenefit: 0,
+  socialSecurityClaimingAge: 67,
+  socialSecurityTaxablePortionPct: 0.85,
+  otherAnnualIncome: 0,
+  reverseMortgageAnnualIncome: 0,
 };
 
 function App() {

@@ -22,25 +22,63 @@ export function getActualBalanceAtRetirement(
 }
 
 /**
+ * Solves for the gross portfolio withdrawal G such that, after tax on the
+ * combined taxable income (G plus any other taxable income sources) above a
+ * standard deduction, total spendable cash — G plus all non-taxable and
+ * taxable outside income — nets exactly netExpenseTarget. Generalizes the
+ * single-source case (grossUpWithdrawal) to a household with Social
+ * Security / other income pooled into one combined tax bill, mirroring how
+ * real unified tax filing works rather than taxing each source separately.
+ *
+ * taxableFixedIncome = outside income that counts toward taxable income
+ * (e.g. the taxable portion of Social Security, other taxable income).
+ * fixedIncome = ALL outside income that's actually spendable (taxable and
+ * tax-free, e.g. reverse mortgage draws), which directly offsets how much
+ * needs to come from the portfolio at all.
+ */
+export function solveGrossWithdrawal(
+  netExpenseTarget: number,
+  standardDeduction: number,
+  taxRatePct: number,
+  taxableFixedIncome: number = 0,
+  fixedIncome: number = 0,
+): number {
+  const netFromPortfolio = netExpenseTarget - fixedIncome;
+  if (netFromPortfolio <= 0) return 0;
+  if (taxRatePct <= 0) return netFromPortfolio;
+
+  const candidateGross =
+    (netFromPortfolio + (taxableFixedIncome - standardDeduction) * taxRatePct) / (1 - taxRatePct);
+  // If the combined taxable income at this candidate gross wouldn't actually
+  // exceed the deduction, no tax is owed at all and G is just the net need.
+  return candidateGross + taxableFixedIncome > standardDeduction
+    ? Math.max(0, candidateGross)
+    : netFromPortfolio;
+}
+
+/**
  * Solves for the gross (pre-tax) withdrawal G such that, after tax on the
  * portion of G above the standard deduction, the retiree nets exactly
  * netAmount to spend. Tax is a flat rate above a deduction, not real
  * progressive brackets — a deliberate simplification (see project decision
  * to start with a simple tax model and layer in bracket-awareness later).
- *
- * net = G - max(0, G - standardDeduction) * taxRatePct
- * Solving the G > standardDeduction case: G = (net - standardDeduction * taxRatePct) / (1 - taxRatePct)
- * If that candidate doesn't actually exceed standardDeduction, no tax is
- * owed at all and G simply equals net.
+ * The zero-other-income special case of solveGrossWithdrawal.
  */
 export function grossUpWithdrawal(netAmount: number, standardDeduction: number, taxRatePct: number): number {
-  if (taxRatePct <= 0 || netAmount <= 0) return netAmount;
-  const candidateGross = (netAmount - standardDeduction * taxRatePct) / (1 - taxRatePct);
-  return candidateGross > standardDeduction ? candidateGross : netAmount;
+  return solveGrossWithdrawal(netAmount, standardDeduction, taxRatePct);
+}
+
+export function computeCombinedTaxOwed(
+  grossWithdrawal: number,
+  standardDeduction: number,
+  taxRatePct: number,
+  taxableFixedIncome: number = 0,
+): number {
+  return Math.max(0, grossWithdrawal + taxableFixedIncome - standardDeduction) * taxRatePct;
 }
 
 export function computeTaxOwed(grossWithdrawal: number, standardDeduction: number, taxRatePct: number): number {
-  return Math.max(0, grossWithdrawal - standardDeduction) * taxRatePct;
+  return computeCombinedTaxOwed(grossWithdrawal, standardDeduction, taxRatePct);
 }
 
 export interface WithdrawalYearResult {
@@ -55,6 +93,12 @@ export interface WithdrawalYearResult {
   cashBalance: number;
   /** Whether the cash bucket was topped back up from stocks this year. */
   refilled: boolean;
+  /** This year's Social Security income (0 before the claiming age). */
+  socialSecurityIncome: number;
+  /** This year's other income (rents/dividends), inflated from year 1. */
+  otherIncome: number;
+  /** This year's reverse mortgage draw, inflated from year 1, tax-free. */
+  reverseMortgageIncome: number;
 }
 
 export interface WithdrawalTrackResult {
@@ -64,65 +108,148 @@ export interface WithdrawalTrackResult {
   finalBalance: number;
 }
 
-function projectGrossWithdrawals(
+interface ProjectedYearPlan {
+  netExpenseTarget: number;
+  yearStandardDeduction: number;
+  socialSecurityIncome: number;
+  otherIncome: number;
+  reverseMortgageIncome: number;
+  grossWithdrawal: number;
+  taxOwed: number;
+}
+
+function projectYearlyPlan(
   years: number,
   annualExpense: number,
   inflationRatePct: number,
   standardDeduction: number,
   taxRatePct: number,
-): number[] {
-  const projected: number[] = [];
+  socialSecurityAnnualBenefit: number,
+  socialSecurityStartYear: number,
+  socialSecurityTaxablePortionPct: number,
+  otherAnnualIncome: number,
+  reverseMortgageAnnualIncome: number,
+): ProjectedYearPlan[] {
+  const projected: ProjectedYearPlan[] = [];
   for (let i = 0; i < years; i++) {
+    const yearIndex = i + 1;
     const inflationFactor = Math.pow(1 + inflationRatePct, i);
     const netExpenseTarget = annualExpense * inflationFactor;
     const yearStandardDeduction = standardDeduction * inflationFactor;
-    projected.push(grossUpWithdrawal(netExpenseTarget, yearStandardDeduction, taxRatePct));
+
+    // Social Security inflates from ITS OWN claiming year, not from year 1 of
+    // retirement — otherwise a benefit that hasn't started yet would look
+    // like it already inflated during the years before claiming.
+    const socialSecurityIncome =
+      socialSecurityAnnualBenefit > 0 && yearIndex >= socialSecurityStartYear
+        ? socialSecurityAnnualBenefit * Math.pow(1 + inflationRatePct, yearIndex - socialSecurityStartYear)
+        : 0;
+    const otherIncome = otherAnnualIncome * inflationFactor;
+    const reverseMortgageIncome = reverseMortgageAnnualIncome * inflationFactor;
+
+    // Reverse mortgage proceeds are loan proceeds, not taxable income, so
+    // they're excluded from taxableFixedIncome but still count toward
+    // fixedIncome (spendable cash that offsets the portfolio withdrawal).
+    const taxableFixedIncome = socialSecurityIncome * socialSecurityTaxablePortionPct + otherIncome;
+    const fixedIncome = socialSecurityIncome + otherIncome + reverseMortgageIncome;
+
+    const grossWithdrawal = solveGrossWithdrawal(
+      netExpenseTarget,
+      yearStandardDeduction,
+      taxRatePct,
+      taxableFixedIncome,
+      fixedIncome,
+    );
+    const taxOwed = computeCombinedTaxOwed(grossWithdrawal, yearStandardDeduction, taxRatePct, taxableFixedIncome);
+
+    projected.push({
+      netExpenseTarget,
+      yearStandardDeduction,
+      socialSecurityIncome,
+      otherIncome,
+      reverseMortgageIncome,
+      grossWithdrawal,
+      taxOwed,
+    });
   }
   return projected;
 }
 
-/** Sum of the next cashBucketYears years' projected gross withdrawals, starting at fromIndex (0-based), capped at however many years remain. */
-function cashBucketTarget(projected: number[], fromIndex: number, cashBucketYears: number): number {
+/** Sum of the next cashBucketYears years' projected gross portfolio withdrawals, starting at fromIndex (0-based), capped at however many years remain. Fixed income (SS/other/reverse mortgage) isn't bucketed — it arrives on its own regardless of market conditions. */
+function cashBucketTarget(projected: ProjectedYearPlan[], fromIndex: number, cashBucketYears: number): number {
   let target = 0;
   const end = Math.min(fromIndex + cashBucketYears, projected.length);
   for (let k = fromIndex; k < end; k++) {
-    target += projected[k];
+    target += projected[k].grossWithdrawal;
   }
   return target;
 }
 
+export interface RunWithdrawalTrackOptions {
+  startingBalance: number;
+  returns: number[];
+  annualExpense: number;
+  inflationRatePct: number;
+  standardDeduction: number;
+  /** Combined federal + state flat rate. */
+  taxRatePct: number;
+  feePct: number;
+  /** Years of upcoming withdrawals held in cash. 0 (default) disables the bucket entirely. */
+  cashBucketYears?: number;
+  cashInterestRatePct?: number;
+  socialSecurityAnnualBenefit?: number;
+  /** 1-based year within this track Social Security starts (1 = starts immediately in year 1). */
+  socialSecurityStartYear?: number;
+  socialSecurityTaxablePortionPct?: number;
+  otherAnnualIncome?: number;
+  reverseMortgageAnnualIncome?: number;
+}
+
 /**
- * Year-by-year withdrawal engine (Section 13.3), extended with an optional
- * cash "bucket" strategy: cashBucketYears worth of upcoming withdrawals are
- * held in a low-volatility cash account (earning cashInterestRatePct) and
- * drawn down first, so ordinary withdrawals don't force stock sales during a
- * market downturn. The bucket is topped back up from stocks only in years
- * the stock return was positive — refilling after a down year would sell
- * stocks at a loss, defeating the point of holding the buffer. If a
- * downturn drains the bucket before a refill opportunity comes, the
- * shortfall is pulled from stocks that year regardless (unavoidable, but
- * visible via each row's stockBalance/cashBalance split).
- *
- * cashBucketYears = 0 (the default) disables the bucket — every withdrawal
- * comes straight from a single balance, same as a plain withdrawal engine.
+ * Year-by-year withdrawal engine (Section 13.3), extended with:
+ *  - an optional cash "bucket" strategy: cashBucketYears worth of upcoming
+ *    portfolio withdrawals are held in a low-volatility cash account
+ *    (earning cashInterestRatePct) and drawn down first, so ordinary
+ *    withdrawals don't force stock sales during a market downturn. The
+ *    bucket is topped back up from stocks only in years the stock return
+ *    was positive — refilling after a down year would sell stocks at a
+ *    loss, defeating the point of holding the buffer. cashBucketYears = 0
+ *    (the default) disables the bucket entirely.
+ *  - optional outside income streams (Social Security, other income, a
+ *    simplified flat reverse mortgage draw) that reduce how much needs to
+ *    come from the portfolio each year, pooled into one combined tax
+ *    calculation the same way a real household files one unified return
+ *    rather than taxing each income source separately.
  */
-export function runWithdrawalTrack(
-  startingBalance: number,
-  returns: number[],
-  annualExpense: number,
-  inflationRatePct: number,
-  standardDeduction: number,
-  taxRatePct: number,
-  feePct: number,
-  cashBucketYears: number = 0,
-  cashInterestRatePct: number = 0,
-): WithdrawalTrackResult {
-  const projected = projectGrossWithdrawals(
+export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): WithdrawalTrackResult {
+  const {
+    startingBalance,
+    returns,
+    annualExpense,
+    inflationRatePct,
+    standardDeduction,
+    taxRatePct,
+    feePct,
+    cashBucketYears = 0,
+    cashInterestRatePct = 0,
+    socialSecurityAnnualBenefit = 0,
+    socialSecurityStartYear = 1,
+    socialSecurityTaxablePortionPct = 0,
+    otherAnnualIncome = 0,
+    reverseMortgageAnnualIncome = 0,
+  } = options;
+
+  const projected = projectYearlyPlan(
     returns.length,
     annualExpense,
     inflationRatePct,
     standardDeduction,
     taxRatePct,
+    socialSecurityAnnualBenefit,
+    socialSecurityStartYear,
+    socialSecurityTaxablePortionPct,
+    otherAnnualIncome,
+    reverseMortgageAnnualIncome,
   );
 
   const initialCashTarget = cashBucketTarget(projected, 0, cashBucketYears);
@@ -136,11 +263,8 @@ export function runWithdrawalTrack(
     if (stockBalance <= 0 && cashBalance <= 0) break;
 
     const yearIndex = i + 1;
-    const inflationFactor = Math.pow(1 + inflationRatePct, i);
-    const netExpenseTarget = annualExpense * inflationFactor;
-    const yearStandardDeduction = standardDeduction * inflationFactor;
-    const grossWithdrawal = projected[i];
-    const taxOwed = computeTaxOwed(grossWithdrawal, yearStandardDeduction, taxRatePct);
+    const { netExpenseTarget, socialSecurityIncome, otherIncome, reverseMortgageIncome, grossWithdrawal, taxOwed } =
+      projected[i];
 
     const beginningBalance = stockBalance + cashBalance;
 
@@ -179,6 +303,9 @@ export function runWithdrawalTrack(
       stockBalance,
       cashBalance,
       refilled,
+      socialSecurityIncome,
+      otherIncome,
+      reverseMortgageIncome,
     });
 
     if (endingBalance <= 0) {
@@ -207,6 +334,27 @@ function percentileOf(sortedAscending: number[], p: number): number {
   return sortedAscending[idx];
 }
 
+export interface RunMonteCarloDistributionOptions {
+  startingBalance: number;
+  historicalReturnPool: number[];
+  years: number;
+  annualExpense: number;
+  inflationRatePct: number;
+  standardDeduction: number;
+  /** Combined federal + state flat rate. */
+  taxRatePct: number;
+  feePct: number;
+  trials: number;
+  randomFn?: () => number;
+  cashBucketYears?: number;
+  cashInterestRatePct?: number;
+  socialSecurityAnnualBenefit?: number;
+  socialSecurityStartYear?: number;
+  socialSecurityTaxablePortionPct?: number;
+  otherAnnualIncome?: number;
+  reverseMortgageAnnualIncome?: number;
+}
+
 /**
  * Runs many independent trials, each bootstrap-resampling annual returns
  * (with replacement) from the real historical return pool rather than
@@ -214,20 +362,27 @@ function percentileOf(sortedAscending: number[], p: number): number {
  * possible outcomes instead of a single arbitrary path (project decision:
  * randomized Monte Carlo over a deterministic historical replay).
  */
-export function runMonteCarloDistribution(
-  startingBalance: number,
-  historicalReturnPool: number[],
-  years: number,
-  annualExpense: number,
-  inflationRatePct: number,
-  standardDeduction: number,
-  taxRatePct: number,
-  feePct: number,
-  trials: number,
-  randomFn: () => number = Math.random,
-  cashBucketYears: number = 0,
-  cashInterestRatePct: number = 0,
-): MonteCarloResult {
+export function runMonteCarloDistribution(options: RunMonteCarloDistributionOptions): MonteCarloResult {
+  const {
+    startingBalance,
+    historicalReturnPool,
+    years,
+    annualExpense,
+    inflationRatePct,
+    standardDeduction,
+    taxRatePct,
+    feePct,
+    trials,
+    randomFn = Math.random,
+    cashBucketYears = 0,
+    cashInterestRatePct = 0,
+    socialSecurityAnnualBenefit = 0,
+    socialSecurityStartYear = 1,
+    socialSecurityTaxablePortionPct = 0,
+    otherAnnualIncome = 0,
+    reverseMortgageAnnualIncome = 0,
+  } = options;
+
   const results: WithdrawalTrackResult[] = [];
 
   for (let t = 0; t < trials; t++) {
@@ -236,7 +391,7 @@ export function runMonteCarloDistribution(
       () => historicalReturnPool[Math.floor(randomFn() * historicalReturnPool.length)],
     );
     results.push(
-      runWithdrawalTrack(
+      runWithdrawalTrack({
         startingBalance,
         returns,
         annualExpense,
@@ -246,7 +401,12 @@ export function runMonteCarloDistribution(
         feePct,
         cashBucketYears,
         cashInterestRatePct,
-      ),
+        socialSecurityAnnualBenefit,
+        socialSecurityStartYear,
+        socialSecurityTaxablePortionPct,
+        otherAnnualIncome,
+        reverseMortgageAnnualIncome,
+      }),
     );
   }
 
@@ -318,27 +478,45 @@ export function runDistributionComparison(
     annualExpense,
     inflationRatePct,
     standardDeduction,
-    taxRatePct,
+    federalTaxRatePct,
+    stateTaxRatePct,
     managementFeePct,
     cashBucketYears,
     cashInterestRatePct,
+    socialSecurityAnnualBenefit,
+    socialSecurityClaimingAge,
+    socialSecurityTaxablePortionPct,
+    otherAnnualIncome,
+    reverseMortgageAnnualIncome,
   } = distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
+  const combinedTaxRatePct = federalTaxRatePct + stateTaxRatePct;
+  // Social Security's own claiming age is independent of Stop-Working Age —
+  // it may start before, at, or (more commonly) after retirement begins.
+  // Expressed as a 1-based year within the withdrawal track, where year 1 =
+  // stopWorkingAge; clamped to 1 so an already-past claiming age just means
+  // benefits start immediately in year 1.
+  const socialSecurityStartYear = Math.max(1, socialSecurityClaimingAge - stopWorkingAge + 1);
 
-  const monteCarlo = runMonteCarloDistribution(
-    startingBalanceActual,
-    HISTORICAL_TOTAL_RETURN_POOL,
+  const monteCarlo = runMonteCarloDistribution({
+    startingBalance: startingBalanceActual,
+    historicalReturnPool: HISTORICAL_TOTAL_RETURN_POOL,
     years,
     annualExpense,
     inflationRatePct,
     standardDeduction,
-    taxRatePct,
-    managementFeePct,
-    monteCarloTrials,
+    taxRatePct: combinedTaxRatePct,
+    feePct: managementFeePct,
+    trials: monteCarloTrials,
     randomFn,
     cashBucketYears,
     cashInterestRatePct,
-  );
+    socialSecurityAnnualBenefit,
+    socialSecurityStartYear,
+    socialSecurityTaxablePortionPct,
+    otherAnnualIncome,
+    reverseMortgageAnnualIncome,
+  });
 
   return { years, monteCarlo };
 }
@@ -365,10 +543,16 @@ export function validateDistributionInputs(
     planThroughAge,
     annualExpense,
     standardDeduction,
-    taxRatePct,
+    federalTaxRatePct,
+    stateTaxRatePct,
     managementFeePct,
     cashBucketYears,
     cashInterestRatePct,
+    socialSecurityAnnualBenefit,
+    socialSecurityClaimingAge,
+    socialSecurityTaxablePortionPct,
+    otherAnnualIncome,
+    reverseMortgageAnnualIncome,
   } = inputs;
 
   if (currentAge === undefined || Number.isNaN(currentAge) || currentAge < 0) {
@@ -399,8 +583,23 @@ export function validateDistributionInputs(
     errors.push({ field: 'standardDeduction', message: 'Standard deduction cannot be negative.' });
   }
 
-  if (taxRatePct !== undefined && (taxRatePct < 0 || taxRatePct > 0.5)) {
-    errors.push({ field: 'taxRatePct', message: 'Tax rate must be between 0% and 50%.' });
+  if (federalTaxRatePct !== undefined && (federalTaxRatePct < 0 || federalTaxRatePct > 0.5)) {
+    errors.push({ field: 'federalTaxRatePct', message: 'Federal tax rate must be between 0% and 50%.' });
+  }
+
+  if (stateTaxRatePct !== undefined && (stateTaxRatePct < 0 || stateTaxRatePct > 0.15)) {
+    errors.push({ field: 'stateTaxRatePct', message: 'State tax rate must be between 0% and 15%.' });
+  }
+
+  if (
+    federalTaxRatePct !== undefined &&
+    stateTaxRatePct !== undefined &&
+    federalTaxRatePct + stateTaxRatePct >= 1
+  ) {
+    errors.push({
+      field: 'stateTaxRatePct',
+      message: 'Combined federal + state tax rate cannot reach 100%.',
+    });
   }
 
   if (managementFeePct !== undefined && (managementFeePct < 0 || managementFeePct > 0.02)) {
@@ -415,6 +614,44 @@ export function validateDistributionInputs(
     errors.push({
       field: 'cashInterestRatePct',
       message: 'Cash interest rate must be between 0% and 10%.',
+    });
+  }
+
+  if (socialSecurityAnnualBenefit !== undefined && socialSecurityAnnualBenefit < 0) {
+    errors.push({
+      field: 'socialSecurityAnnualBenefit',
+      message: 'Social Security benefit cannot be negative.',
+    });
+  }
+
+  if (
+    socialSecurityClaimingAge !== undefined &&
+    (Number.isNaN(socialSecurityClaimingAge) || socialSecurityClaimingAge < 0 || socialSecurityClaimingAge > 100)
+  ) {
+    errors.push({
+      field: 'socialSecurityClaimingAge',
+      message: 'Social Security claiming age must be between 0 and 100.',
+    });
+  }
+
+  if (
+    socialSecurityTaxablePortionPct !== undefined &&
+    (socialSecurityTaxablePortionPct < 0 || socialSecurityTaxablePortionPct > 1)
+  ) {
+    errors.push({
+      field: 'socialSecurityTaxablePortionPct',
+      message: 'Social Security taxable portion must be between 0% and 100%.',
+    });
+  }
+
+  if (otherAnnualIncome !== undefined && otherAnnualIncome < 0) {
+    errors.push({ field: 'otherAnnualIncome', message: 'Other annual income cannot be negative.' });
+  }
+
+  if (reverseMortgageAnnualIncome !== undefined && reverseMortgageAnnualIncome < 0) {
+    errors.push({
+      field: 'reverseMortgageAnnualIncome',
+      message: 'Reverse mortgage annual income cannot be negative.',
     });
   }
 

@@ -63,10 +63,28 @@ export interface DistributionInputs {
   annualExpense: number; // net (take-home) year-1 spend target
   inflationRatePct: number;
   standardDeduction: number; // year-1 dollars, grows with inflation
-  taxRatePct: number;
+  federalTaxRatePct: number;
+  /** Combined with federalTaxRatePct into one flat rate above the standard deduction — a simplification of real state tax rules (own brackets/deductions), not a full state tax model. */
+  stateTaxRatePct: number;
   managementFeePct: number;
   /** Years of upcoming withdrawals held in cash, drawn down first so stocks aren't sold in a downturn. 0 disables the bucket entirely. */
   cashBucketYears: number;
   /** Money-market interest rate earned on the cash bucket — fixed, not tied to historical volatility (real money-market funds don't crash the way stocks/bonds can). */
   cashInterestRatePct: number;
+  /** Today's-dollars annual Social Security benefit, starting at socialSecurityClaimingAge and inflating from there. 0 disables it. */
+  socialSecurityAnnualBenefit: number;
+  /** Age Social Security starts — independent of Stop-Working Age, since many people delay claiming past when they stop working. */
+  socialSecurityClaimingAge: number;
+  /** Simplified flat stand-in for the real up-to-85%-taxable sliding-scale IRS rule on Social Security. */
+  socialSecurityTaxablePortionPct: number;
+  /** Other taxable income (rental, dividends outside the main account, etc.), today's dollars, starting at Stop-Working Age and inflating. */
+  otherAnnualIncome: number;
+  /**
+   * Reverse mortgage draw, today's dollars, starting at Stop-Working Age and
+   * inflating — treated as tax-free income (real reverse mortgage proceeds
+   * are loan proceeds, not taxable). Deliberately simplified: no home value,
+   * no loan balance, no interest accrual tracked. Placeholder pending the
+   * same dedicated treatment Phase 4 is getting for whole life loans.
+   */
+  reverseMortgageAnnualIncome: number;
 }
