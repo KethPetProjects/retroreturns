@@ -15,6 +15,7 @@ import { CaveatsPanel } from './components/phase2/CaveatsPanel';
 import { DistributionInputPanel } from './components/phase3/DistributionInputPanel';
 import { DistributionChart } from './components/phase3/DistributionChart';
 import { DistributionSummary } from './components/phase3/DistributionSummary';
+import { DistributionTable } from './components/phase3/DistributionTable';
 import { useHistoricalReturns } from './hooks/useHistoricalReturns';
 import { useSimulation } from './hooks/useSimulation';
 import { useWholeLifeComparison } from './hooks/useWholeLifeComparison';
@@ -202,6 +203,10 @@ function App() {
                   <>
                     <DistributionChart
                       result={distributionResult}
+                      stopWorkingAge={distributionInputs.stopWorkingAge}
+                    />
+                    <DistributionTable
+                      rows={distributionResult.monteCarlo.medianTrialRows}
                       stopWorkingAge={distributionInputs.stopWorkingAge}
                     />
                     <DistributionSummary
