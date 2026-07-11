@@ -9,6 +9,8 @@ import {
   runDistributionComparison,
   validateDistributionInputs,
   getActualBalanceAtRetirement,
+  rmdDivisorForAge,
+  rmdStartAgeForBirthYear,
 } from '../distributionCalculations';
 import type { SimulationYearRow } from '../../types';
 
@@ -125,6 +127,32 @@ describe('solveGrossWithdrawal / computeCombinedTaxOwed (multi-income-source gen
 
   it('returns 0 when fixed income alone already covers the net expense target', () => {
     expect(solveGrossWithdrawal(50000, 15000, 0.2, 0, 80000)).toBe(0);
+  });
+});
+
+describe('rmdDivisorForAge / rmdStartAgeForBirthYear (SECURE 2.0 / IRS Uniform Lifetime Table)', () => {
+  it('matches published IRS Uniform Lifetime Table divisors at spot-check ages', () => {
+    expect(rmdDivisorForAge(73)).toBe(26.5);
+    expect(rmdDivisorForAge(75)).toBe(24.6);
+    expect(rmdDivisorForAge(90)).toBe(12.2);
+    expect(rmdDivisorForAge(100)).toBe(6.4);
+  });
+
+  it('clamps ages at or above 120 to the final published divisor (2.0)', () => {
+    expect(rmdDivisorForAge(120)).toBe(2.0);
+    expect(rmdDivisorForAge(130)).toBe(2.0);
+  });
+
+  it('divisor shrinks (required withdrawal % rises) as age increases', () => {
+    expect(rmdDivisorForAge(80)).toBeLessThan(rmdDivisorForAge(73));
+    expect(rmdDivisorForAge(95)).toBeLessThan(rmdDivisorForAge(80));
+  });
+
+  it('applies SECURE 2.0\'s birth-year split: age 73 for born 1951-1959, age 75 for born 1960+', () => {
+    expect(rmdStartAgeForBirthYear(1955)).toBe(73);
+    expect(rmdStartAgeForBirthYear(1959)).toBe(73);
+    expect(rmdStartAgeForBirthYear(1960)).toBe(75);
+    expect(rmdStartAgeForBirthYear(1990)).toBe(75);
   });
 });
 
@@ -479,6 +507,60 @@ describe('runWithdrawalTrack — Social Security / other income / reverse mortga
   });
 });
 
+describe('runWithdrawalTrack — Required Minimum Distributions (RMD)', () => {
+  const base = {
+    startingBalance: 5_000_000, // large relative to spend, so RMD % clearly exceeds the planned withdrawal
+    returns: new Array(10).fill(0.04),
+    annualExpense: 60000,
+    inflationRatePct: 0.03,
+    standardDeduction: 15000,
+    taxRatePct: 0.2,
+    feePct: 0,
+  };
+
+  it('does not force anything before rmdStartYear, or when rmdStartYear/rmdStartAge are omitted', () => {
+    const noRmdOption = runWithdrawalTrack(base);
+    const beforeStart = runWithdrawalTrack({ ...base, rmdStartYear: 5, rmdStartAge: 73 });
+    expect(noRmdOption.rows[0].rmdApplied).toBe(false);
+    expect(beforeStart.rows[0].rmdApplied).toBe(false);
+    expect(beforeStart.rows[3].rmdApplied).toBe(false); // year 4, still before rmdStartYear 5
+    expect(beforeStart.rows[0].grossWithdrawal).toBeCloseTo(noRmdOption.rows[0].grossWithdrawal, 4);
+  });
+
+  it('forces the withdrawal up to the IRS-required amount once RMDs start, when that exceeds the planned withdrawal', () => {
+    const result = runWithdrawalTrack({ ...base, rmdStartYear: 1, rmdStartAge: 73 });
+    const plain = runWithdrawalTrack(base);
+    // $5M / 26.5 (age-73 divisor) ≈ $188,679 — far more than the ~$60K-ish planned withdrawal.
+    expect(result.rows[0].rmdApplied).toBe(true);
+    expect(result.rows[0].grossWithdrawal).toBeCloseTo(5_000_000 / 26.5, 0);
+    expect(result.rows[0].grossWithdrawal).toBeGreaterThan(plain.rows[0].grossWithdrawal);
+    // Tax owed must reflect the LARGER, RMD-forced withdrawal, not the original planned one.
+    expect(result.rows[0].taxOwed).toBeGreaterThan(plain.rows[0].taxOwed);
+  });
+
+  it('does not force anything when the RMD amount is smaller than the already-planned withdrawal', () => {
+    // A modest balance means the RMD dollar amount is small relative to spend.
+    const result = runWithdrawalTrack({
+      ...base,
+      startingBalance: 200000,
+      rmdStartYear: 1,
+      rmdStartAge: 73,
+    });
+    const plain = runWithdrawalTrack({ ...base, startingBalance: 200000 });
+    expect(result.rows[0].rmdApplied).toBe(false);
+    expect(result.rows[0].grossWithdrawal).toBeCloseTo(plain.rows[0].grossWithdrawal, 4);
+  });
+
+  it('uses a shrinking divisor (rising required %) as attained age increases across the track', () => {
+    const result = runWithdrawalTrack({ ...base, rmdStartYear: 1, rmdStartAge: 73 });
+    // Age 73 in year 1 -> divisor 26.5; age 74 in year 2 -> divisor 25.5 (smaller divisor = bigger required %).
+    const impliedDivisorYear1 = result.rows[0].beginningBalance / result.rows[0].grossWithdrawal;
+    const impliedDivisorYear2 = result.rows[1].beginningBalance / result.rows[1].grossWithdrawal;
+    expect(impliedDivisorYear1).toBeCloseTo(26.5, 1);
+    expect(impliedDivisorYear2).toBeCloseTo(25.5, 1);
+  });
+});
+
 describe('runMonteCarloDistribution', () => {
   // Simple deterministic PRNG for reproducible tests
   function seededRandom(seed: number) {
@@ -749,6 +831,80 @@ describe('runDistributionComparison (integration)', () => {
     expect(rows[14].longTermCareCost).toBe(0); // year 15, age 79 — not started yet
     expect(rows[15].longTermCareCost).toBeCloseTo(40000, 4); // year 16, age 80 — starts here
     expect(rows[15].grossWithdrawal).toBeGreaterThan(rows[14].grossWithdrawal + 30000);
+  });
+
+  it('derives RMD start age (73 vs 75) from Current Age + calendar year per SECURE 2.0, and exposes it on the result', () => {
+    const baseInputs = {
+      stopWorkingAge: 70,
+      planThroughAge: 95,
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 70,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+    };
+
+    const bornBefore1960 = runDistributionComparison({
+      startingBalanceActual: 2_000_000,
+      distributionInputs: { ...baseInputs, currentAge: 67 }, // birth year 1959
+      currentCalendarYear: 2026,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(6),
+    });
+    const bornIn1960OrLater = runDistributionComparison({
+      startingBalanceActual: 2_000_000,
+      distributionInputs: { ...baseInputs, currentAge: 66 }, // birth year 1960
+      currentCalendarYear: 2026,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(6),
+    });
+
+    expect(bornBefore1960.rmdStartAge).toBe(73);
+    expect(bornIn1960OrLater.rmdStartAge).toBe(75);
+  });
+
+  it('forces at least one year of RMD-driven withdrawal for a large balance once the RMD age is reached', () => {
+    const distributionInputs = {
+      currentAge: 67, // birth year 1959 -> RMD starts at 73
+      stopWorkingAge: 70,
+      planThroughAge: 95,
+      annualExpense: 40000, // modest relative to the large balance below
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 70,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+    };
+    const result = runDistributionComparison({
+      startingBalanceActual: 8_000_000,
+      distributionInputs,
+      currentCalendarYear: 2026,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(9),
+    });
+    expect(result.rmdStartAge).toBe(73);
+    expect(result.monteCarlo.medianTrialRows.some((r) => r.rmdApplied)).toBe(true);
   });
 });
 

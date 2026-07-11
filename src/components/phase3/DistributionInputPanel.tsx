@@ -271,6 +271,13 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         a simplification of real long-term care risk, which is much more variable (many people never
         need it, some need many years of expensive skilled nursing care).
       </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Required Minimum Distributions (RMDs) are always modeled — no separate input needed. Starting
+        at age 73 or 75 (per SECURE 2.0, derived from Current Age), each year's withdrawal is forced up
+        to the IRS-required minimum whenever that's larger than what the expense/LTC plan alone would
+        withdraw. Assumes the whole portfolio is a tax-deferred account, matching this tool's
+        401(k)-style framing.
+      </p>
     </section>
   );
 }

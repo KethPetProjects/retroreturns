@@ -15,7 +15,7 @@ function outcomeLabel(depletedAtYear: number | null, stopWorkingAge: number, pla
 }
 
 export function DistributionSummary({ result, stopWorkingAge, planThroughAge }: DistributionSummaryProps) {
-  const { years, monteCarlo } = result;
+  const { years, monteCarlo, rmdStartAge } = result;
   const startingBalance = monteCarlo.medianTrialRows[0]?.beginningBalance;
 
   return (
@@ -55,6 +55,12 @@ export function DistributionSummary({ result, stopWorkingAge, planThroughAge }: 
         much faster than a flat average return would ever suggest — that's exactly what the
         spread between the success rate, median outcome, and worst-decile outcome above is
         showing.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Required Minimum Distributions begin at age {rmdStartAge} (per SECURE 2.0, based on Current
+        Age) and are always modeled, assuming the whole portfolio is a tax-deferred account —
+        withdrawals are forced up to the IRS-required minimum in any year that exceeds what the
+        expense/LTC plan alone would have withdrawn (flagged in the table below as "RMD?").
       </p>
     </section>
   );

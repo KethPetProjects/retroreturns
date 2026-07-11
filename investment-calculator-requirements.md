@@ -543,6 +543,7 @@ Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which
 | Long-Term Care Annual Cost ($) | Dollar amount | $0 | See 13.7 — extra spending (not income) added on top of Annual Expense starting at Long-Term Care Start Age. 0 disables it |
 | Long-Term Care Start Age | Number | 80 | Independent of Stop-Working Age/Plan Through Age. Runs through the rest of the plan once started (no separate end age) |
 | Long-Term Care Inflation Rate (%) | Percentage | 5% | Own inflation rate for LTC costs, separate from and typically higher than the general Inflation Adjustment rate |
+| *(no input — always on)* | — | — | **Required Minimum Distributions** (see 13.9): start age (73/75) derived automatically from Current Age via SECURE 2.0's birth-year rule, no toggle to disable |
 
 All dollar income fields (Social Security, Other Income, Reverse Mortgage) and Long-Term Care Annual Cost are **annual**, matching Annual Expense's convention.
 
@@ -597,9 +598,21 @@ Because this adds to the net spend target rather than offsetting it, it flows th
 - **Median Outcome:** the depletion year of the trial ranked at the 50th percentile across ALL trials (survivors included, ranked as better than any failure) — the exact same trial the chart/table show, so they can never disagree. Shows "Lasted through age X" whenever that trial is itself a survivor (i.e. success rate ≥ 50%)
 - **Worst-Decile Outcome:** same ranking, at the 10th-percentile position — a bad-case reference point, not the single worst trial. Null (shown as "fewer than 10% of trials depleted") whenever that position is also a survivor
 - **Chart:** the single trial ranked at the 50th percentile, plotted as Total / S&P 500 Portion (stock) / Cash Bucket lines, anchored at the true pre-withdrawal starting balance (a "year 0" point) so the line doesn't visibly jump on recompute
-- **Year-by-Year table:** full breakdown for that same trial — Year, Age, Beginning Balance, S&P Return, Gross Withdrawal, Social Security, Other Income, Reverse Mortgage, LTC Cost, Tax Owed, Stock Balance, Cash Balance, Refilled?, Ending Balance
+- **Year-by-Year table:** full breakdown for that same trial — Year, Age, Beginning Balance, S&P Return, Gross Withdrawal, RMD?, Social Security, Other Income, Reverse Mortgage, LTC Cost, Tax Owed, Stock Balance, Cash Balance, Refilled?, Ending Balance
 
-### 13.9 Resolved Decisions Log
+### 13.9 Required Minimum Distributions (RMD)
+
+**Always modeled — no toggle, no new user-facing input.** Assumes the whole modeled portfolio is a tax-deferred account (matching the tool's existing "401(k)-style" framing throughout), so RMDs apply universally rather than being conditioned on an account-type split the tool doesn't otherwise track.
+
+**Start age (SECURE 2.0):** 73 for those born 1951–1959, 75 for those born 1960 or later. Derived automatically from Current Age and today's calendar date — no separate input. `rmdStartAgeForBirthYear(birthYear)` implements the split; `currentCalendarYear` is an overridable parameter (defaults to the real clock) purely so the birth-year math stays deterministic in tests.
+
+**Mechanic:** each year from the start age onward, the required amount is `this year's beginning-of-year balance ÷ IRS Uniform Lifetime Table divisor for that attained age` (`rmdDivisorForAge`, full published table hardcoded, effective 2022–2026). If that exceeds what the expense/LTC plan alone would have withdrawn that year, the withdrawal is forced up to the RMD amount instead — fully taxable, same as any other withdrawal. Unlike every other Distribution input, RMD depends on the simulated balance path (which isn't known until the Monte Carlo trial actually runs), so it's evaluated fresh inside the per-trial simulation loop rather than precomputed alongside the other income/expense streams.
+
+The divisor shrinks as age increases (26.5 at 73 → 12.2 at 90 → 2.0 at 120+), so the required withdrawal percentage climbs from roughly 3.8% to well over 8% in later years — this is exactly the dynamic that was producing unrealistically large surviving balances before RMDs were modeled: a strong-market trial could keep compounding indefinitely with only expense-driven withdrawals, which isn't how a real tax-deferred account works past 73/75.
+
+**Deliberately out of scope:** the excess amount forced out beyond what's needed to cover spending isn't tracked further (reinvested elsewhere, held as cash, etc.) — it simply leaves the modeled portfolio, which is the conservative and honest choice for a tool answering "how long will *this* portfolio last." No account-type split (Traditional/Roth/taxable) and no toggle to disable RMDs — both considered and rejected as unnecessary complexity for the current scope.
+
+### 13.10 Resolved Decisions Log
 
 1. ✅ Distribution basis: fixed-dollar, inflation-adjusted, tax-grossed-up net spend target (13.3), not a %-of-balance rate
 2. ✅ Volatility modeling: Monte Carlo bootstrap over the real historical return pool (13.4), not a smooth Average-Rate scenario or a single replayed historical sequence — both considered, and the Average-Rate scenario was built then removed as low-value
@@ -609,7 +622,7 @@ Because this adds to the net spend target rather than offsetting it, it flows th
 6. ✅ Median/Worst-Decile Outcome bugfix: originally computed as percentiles of the failed-trials-only subset, independent of the trial actually shown in the table/chart — meant the Summary could report "Depleted at age X" while the table's representative trial visibly survived the full horizon whenever success rate wasn't ~50%. Fixed to read both stats directly off the same full-population trial ranking used for the chart/table (13.8)
 7. ✅ Reverse Mortgage bugfix: was inflating year over year like Social Security/Other Income; corrected to hold flat in nominal dollars, matching how a real reverse mortgage tenure payment works (13.6)
 8. ✅ Long-Term Care: flat extra expense with its own (higher) inflation rate, runs to Plan Through Age once started — deliberately simpler than a probabilistic or tiered-care model (13.7)
-9. **Not yet built, discussed and scoped:** Required Minimum Distributions (RMDs) — forcing withdrawals up to the IRS Uniform Lifetime Table minimum starting at age 73/75 (depending on birth year, per SECURE 2.0), assuming the whole portfolio is tax-deferred. Scoped but not implemented as of this writing.
+9. ✅ Required Minimum Distributions: always modeled (no toggle), start age derived from Current Age via SECURE 2.0's birth-year rule, forced amount from the real IRS Uniform Lifetime Table (13.9)
 
 ---
 

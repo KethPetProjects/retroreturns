@@ -26,6 +26,7 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 'Beg. Balance',
                 'S&P Return',
                 'Gross Withdrawal',
+                'RMD?',
                 'Social Security',
                 'Other Income',
                 'Reverse Mortgage',
@@ -69,6 +70,9 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5">
                   {formatDollars(row.grossWithdrawal)}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-center text-amber-400">
+                  {row.rmdApplied ? '✓' : ''}
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
                   {row.socialSecurityIncome > 0 ? formatDollars(row.socialSecurityIncome) : '—'}

@@ -22,6 +22,35 @@ export function getActualBalanceAtRetirement(
 }
 
 /**
+ * IRS Uniform Lifetime Table (effective 2022, unchanged through 2026) —
+ * "account balance ÷ this divisor" gives the Required Minimum Distribution
+ * for a given attained age. Divisor shrinks as age increases, so the
+ * required withdrawal % climbs over time (~3.8% at 73, ~8% by the 90s).
+ * Source: IRS Publication 590-B / Uniform Lifetime Table.
+ */
+const RMD_UNIFORM_LIFETIME_DIVISORS: Record<number, number> = {
+  72: 27.4, 73: 26.5, 74: 25.5, 75: 24.6, 76: 23.7, 77: 22.9, 78: 22.0, 79: 21.1, 80: 20.2,
+  81: 19.4, 82: 18.5, 83: 17.7, 84: 16.8, 85: 16.0, 86: 15.2, 87: 14.4, 88: 13.7, 89: 12.9, 90: 12.2,
+  91: 11.5, 92: 10.8, 93: 10.1, 94: 9.5, 95: 8.9, 96: 8.4, 97: 7.8, 98: 7.3, 99: 6.8, 100: 6.4,
+  101: 6.0, 102: 5.6, 103: 5.2, 104: 4.9, 105: 4.6, 106: 4.3, 107: 4.1, 108: 3.9, 109: 3.7, 110: 3.5,
+  111: 3.4, 112: 3.3, 113: 3.1, 114: 3.0, 115: 2.9, 116: 2.8, 117: 2.7, 118: 2.5, 119: 2.3, 120: 2.0,
+};
+
+/** Ages below 72 never call this (RMDs haven't started); ages above 120 use the table's final divisor, per IRS guidance that 2.0 applies "at age 120 and older." */
+export function rmdDivisorForAge(age: number): number {
+  const clampedAge = Math.min(120, Math.max(72, Math.round(age)));
+  return RMD_UNIFORM_LIFETIME_DIVISORS[clampedAge];
+}
+
+/**
+ * SECURE 2.0 Act: RMDs start at 73 for those born 1951-1959, and 75 for
+ * those born 1960 or later.
+ */
+export function rmdStartAgeForBirthYear(birthYear: number): number {
+  return birthYear >= 1960 ? 75 : 73;
+}
+
+/**
  * Solves for the gross portfolio withdrawal G such that, after tax on the
  * combined taxable income (G plus any other taxable income sources) above a
  * standard deduction, total spendable cash — G plus all non-taxable and
@@ -101,6 +130,8 @@ export interface WithdrawalYearResult {
   reverseMortgageIncome: number;
   /** This year's extra Long-Term Care spending need (0 before its start age), added into netExpenseTarget. */
   longTermCareCost: number;
+  /** Whether the IRS Required Minimum Distribution forced this year's withdrawal above what the expense/LTC plan alone would have required. */
+  rmdApplied: boolean;
 }
 
 export interface WithdrawalTrackResult {
@@ -117,6 +148,8 @@ interface ProjectedYearPlan {
   otherIncome: number;
   reverseMortgageIncome: number;
   longTermCareCost: number;
+  /** Portion of fixedIncome that's taxable — needed to recompute tax if RMD forces a larger withdrawal than planned (see runWithdrawalTrack). */
+  taxableFixedIncome: number;
   grossWithdrawal: number;
   taxOwed: number;
 }
@@ -187,6 +220,7 @@ function projectYearlyPlan(
       otherIncome,
       reverseMortgageIncome,
       longTermCareCost,
+      taxableFixedIncome,
       grossWithdrawal,
       taxOwed,
     });
@@ -226,6 +260,10 @@ export interface RunWithdrawalTrackOptions {
   /** 1-based year within this track Long-Term Care costs start (1 = starts immediately in year 1). */
   longTermCareStartYear?: number;
   longTermCareInflationRatePct?: number;
+  /** 1-based year within this track Required Minimum Distributions start. Undefined (the default) disables RMD forcing entirely. */
+  rmdStartYear?: number;
+  /** Attained age at rmdStartYear (73 or 75 per SECURE 2.0) — used together with rmdStartYear to look up each subsequent year's IRS divisor. */
+  rmdStartAge?: number;
 }
 
 /**
@@ -246,6 +284,13 @@ export interface RunWithdrawalTrackOptions {
  *  - an optional Long-Term Care cost: extra SPENDING (not income) added on
  *    top of the annual expense starting at its own start year, inflated at
  *    its own (typically higher) rate, running through the rest of the plan.
+ *  - optional Required Minimum Distribution (RMD) forcing: once rmdStartYear
+ *    is reached, each year's withdrawal is bumped up to the IRS-required
+ *    minimum (this year's beginning balance ÷ the Uniform Lifetime Table
+ *    divisor for that age) whenever that's larger than what the expense/LTC
+ *    plan alone would have withdrawn. Unlike every other input here, RMD
+ *    depends on the simulated balance path, so it can't be precomputed in
+ *    projectYearlyPlan — it's evaluated fresh each year inside this loop.
  */
 export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): WithdrawalTrackResult {
   const {
@@ -266,6 +311,8 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     longTermCareAnnualCost = 0,
     longTermCareStartYear = 1,
     longTermCareInflationRatePct = 0,
+    rmdStartYear,
+    rmdStartAge,
   } = options;
 
   const projected = projectYearlyPlan(
@@ -301,11 +348,33 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
       otherIncome,
       reverseMortgageIncome,
       longTermCareCost,
-      grossWithdrawal,
-      taxOwed,
+      yearStandardDeduction,
+      taxableFixedIncome,
+      grossWithdrawal: plannedGrossWithdrawal,
+      taxOwed: plannedTaxOwed,
     } = projected[i];
 
     const beginningBalance = stockBalance + cashBalance;
+
+    // RMD depends on the simulated balance path (unlike everything else in
+    // projected[i], which is precomputed independent of returns), so it's
+    // evaluated fresh here rather than in projectYearlyPlan. Forces the
+    // withdrawal up to the IRS-required minimum whenever that's larger than
+    // the expense/LTC plan alone would have withdrawn — the excess isn't
+    // tracked further (spent or reinvested elsewhere), it just leaves this
+    // portfolio, taxed like any other withdrawal.
+    let grossWithdrawal = plannedGrossWithdrawal;
+    let taxOwed = plannedTaxOwed;
+    let rmdApplied = false;
+    if (rmdStartYear !== undefined && rmdStartAge !== undefined && yearIndex >= rmdStartYear) {
+      const age = rmdStartAge + (yearIndex - rmdStartYear);
+      const rmdAmount = beginningBalance / rmdDivisorForAge(age);
+      if (rmdAmount > grossWithdrawal) {
+        grossWithdrawal = rmdAmount;
+        taxOwed = computeCombinedTaxOwed(grossWithdrawal, yearStandardDeduction, taxRatePct, taxableFixedIncome);
+        rmdApplied = true;
+      }
+    }
 
     // Draw from cash first; any shortfall is a forced stock sale.
     const fromCash = Math.min(cashBalance, grossWithdrawal);
@@ -346,6 +415,7 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
       otherIncome,
       reverseMortgageIncome,
       longTermCareCost,
+      rmdApplied,
     });
 
     if (endingBalance <= 0) {
@@ -392,6 +462,8 @@ export interface RunMonteCarloDistributionOptions {
   longTermCareAnnualCost?: number;
   longTermCareStartYear?: number;
   longTermCareInflationRatePct?: number;
+  rmdStartYear?: number;
+  rmdStartAge?: number;
 }
 
 /**
@@ -423,6 +495,8 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     longTermCareAnnualCost = 0,
     longTermCareStartYear = 1,
     longTermCareInflationRatePct = 0,
+    rmdStartYear,
+    rmdStartAge,
   } = options;
 
   const results: WithdrawalTrackResult[] = [];
@@ -451,6 +525,8 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
         longTermCareAnnualCost,
         longTermCareStartYear,
         longTermCareInflationRatePct,
+        rmdStartYear,
+        rmdStartAge,
       }),
     );
   }
@@ -502,11 +578,15 @@ export interface DistributionComparisonInputs {
   distributionInputs: DistributionInputs;
   monteCarloTrials?: number;
   randomFn?: () => number;
+  /** Calendar year "today" is in, used with Current Age to derive birth year (and thus which SECURE 2.0 RMD start age applies). Defaults to the real current year; overridable for deterministic testing. */
+  currentCalendarYear?: number;
 }
 
 export interface DistributionComparisonResult {
   years: number;
   monteCarlo: MonteCarloResult;
+  /** Age Required Minimum Distributions start (73 or 75, derived from Current Age via SECURE 2.0's birth-year rule) — RMDs are always modeled, assuming the whole portfolio is a tax-deferred account; there's no toggle to disable them. */
+  rmdStartAge: number;
 }
 
 /**
@@ -520,9 +600,15 @@ export interface DistributionComparisonResult {
 export function runDistributionComparison(
   inputs: DistributionComparisonInputs,
 ): DistributionComparisonResult {
-  const { startingBalanceActual, distributionInputs, monteCarloTrials = DEFAULT_MONTE_CARLO_TRIALS, randomFn } =
-    inputs;
   const {
+    startingBalanceActual,
+    distributionInputs,
+    monteCarloTrials = DEFAULT_MONTE_CARLO_TRIALS,
+    randomFn,
+    currentCalendarYear = new Date().getFullYear(),
+  } = inputs;
+  const {
+    currentAge,
     stopWorkingAge,
     planThroughAge,
     annualExpense,
@@ -553,6 +639,13 @@ export function runDistributionComparison(
   // Same conversion as Social Security's claiming age, applied to Long-Term
   // Care's independent start age.
   const longTermCareStartYear = Math.max(1, longTermCareStartAge - stopWorkingAge + 1);
+  // RMDs are always modeled (no toggle) — the tool assumes the whole
+  // portfolio is a tax-deferred account, consistent with its "401k-style"
+  // framing. Start age (73 or 75) is derived from birth year, not asked as
+  // its own input.
+  const birthYear = currentCalendarYear - currentAge;
+  const rmdStartAge = rmdStartAgeForBirthYear(birthYear);
+  const rmdStartYear = Math.max(1, rmdStartAge - stopWorkingAge + 1);
 
   const monteCarlo = runMonteCarloDistribution({
     startingBalance: startingBalanceActual,
@@ -575,9 +668,11 @@ export function runDistributionComparison(
     longTermCareAnnualCost,
     longTermCareStartYear,
     longTermCareInflationRatePct,
+    rmdStartYear,
+    rmdStartAge,
   });
 
-  return { years, monteCarlo };
+  return { years, monteCarlo, rmdStartAge };
 }
 
 export interface DistributionValidationError {
