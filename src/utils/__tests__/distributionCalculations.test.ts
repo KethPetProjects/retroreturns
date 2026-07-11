@@ -469,6 +469,49 @@ describe('runMonteCarloDistribution', () => {
     expect(result.depletionYears.length).toBeGreaterThan(0);
   });
 
+  it('medianDepletionYear always matches medianTrialRows — the Summary and the Table can never disagree', () => {
+    // A mix of good and bad returns so the run produces a realistic blend of
+    // survivors and failures, exercising the actual ranking logic rather
+    // than an all-succeed or all-fail edge case.
+    const result = runMonteCarloDistribution({
+      startingBalance: 900000,
+      historicalReturnPool: [0.15, -0.2, 0.1, -0.05, 0.2, 0.03, -0.15, 0.12, 0.08, -0.1],
+      years: 30,
+      annualExpense: 55000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.2,
+      feePct: 0.0003,
+      trials: 400,
+      randomFn: seededRandom(17),
+    });
+    const lastRow = result.medianTrialRows[result.medianTrialRows.length - 1];
+    const medianTrialDepletedAtYear = lastRow.endingBalance <= 0 ? lastRow.year : null;
+    expect(result.medianDepletionYear).toBe(medianTrialDepletedAtYear);
+  });
+
+  it('reports a null median outcome (not a phantom depletion) when success rate is above 50%', () => {
+    // Mild, mostly-sustainable returns relative to spend — most trials should survive.
+    const result = runMonteCarloDistribution({
+      startingBalance: 3_000_000,
+      historicalReturnPool: [0.08, 0.1, -0.05, 0.12, 0.06],
+      years: 25,
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+      trials: 300,
+      randomFn: seededRandom(23),
+    });
+    expect(result.successRatePct).toBeGreaterThan(0.5);
+    // The 50th-percentile trial across ALL trials is necessarily a survivor
+    // once more than half succeed — reporting a depletion year here would be
+    // describing a different (failures-only) population than the table.
+    expect(result.medianDepletionYear).toBeNull();
+    expect(result.medianTrialRows[result.medianTrialRows.length - 1].endingBalance).toBeGreaterThan(0);
+  });
+
   it('produces a worst-decile depletion year no later than the median depletion year', () => {
     const result = runMonteCarloDistribution({
       startingBalance: 800000,

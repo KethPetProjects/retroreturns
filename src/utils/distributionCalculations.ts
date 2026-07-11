@@ -322,16 +322,12 @@ export interface MonteCarloResult {
   successRatePct: number;
   /** Depletion years for trials that ran out, ascending. Empty if every trial survived. */
   depletionYears: number[];
+  /** The depletion year of the trial ranked at the 50th percentile across ALL trials (survivors included, ranked as better than any failure) — the same trial exposed via medianTrialRows. Null whenever that trial is itself a survivor, i.e. whenever success rate is at or above 50%. */
   medianDepletionYear: number | null;
-  /** The depletion year at the 10th percentile of outcomes — a "bad-case" reference point. Null if fewer than ~10% of trials failed. */
+  /** The depletion year of the trial ranked at the 10th percentile across ALL trials — a "bad-case" reference point. Null if that trial is a survivor, i.e. fewer than ~10% of trials failed. */
   worstDecileDepletionYear: number | null;
-  /** The single trial closest to the median outcome, for charting a representative path. */
+  /** The single trial ranked at the 50th percentile across all trials, for charting a representative path — the same trial medianDepletionYear is read from. */
   medianTrialRows: WithdrawalYearResult[];
-}
-
-function percentileOf(sortedAscending: number[], p: number): number {
-  const idx = Math.min(sortedAscending.length - 1, Math.floor(p * sortedAscending.length));
-  return sortedAscending[idx];
 }
 
 export interface RunMonteCarloDistributionOptions {
@@ -416,13 +412,14 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     .map((r) => r.depletedAtYear!)
     .sort((a, b) => a - b);
 
-  const medianDepletionYear = depletionYears.length > 0 ? percentileOf(depletionYears, 0.5) : null;
-  const worstDecileDepletionYear =
-    depletionYears.length >= trials * 0.1 ? percentileOf(depletionYears, 0.1) : null;
-
-  // Representative "median" trial for charting: rank every trial by outcome
-  // (depleted-earlier is worse; among survivors, lower final balance is worse),
-  // then take the middle-ranked one.
+  // Rank every trial from worst outcome to best (earliest depletion is worst;
+  // among survivors, lower final balance is worse). Percentile stats and the
+  // representative trial shown in the chart/table are both read off this
+  // SAME ranking, so they can never disagree — e.g. if fewer than half the
+  // trials failed, the trial at the 50th-percentile position is necessarily
+  // a survivor, and medianDepletionYear correctly comes out null (matching
+  // what the table/chart show) instead of reporting the median of the
+  // failures-only subset, which was misleading whenever success rate != 50%.
   const ranked = [...results].sort((a, b) => {
     const aKey = a.depletedAtYear ?? Infinity;
     const bKey = b.depletedAtYear ?? Infinity;
@@ -430,6 +427,10 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     return a.finalBalance - b.finalBalance;
   });
   const medianTrial = ranked[Math.floor(ranked.length / 2)];
+  const medianDepletionYear = medianTrial.depletedAtYear;
+
+  const worstDecileTrial = ranked[Math.floor(ranked.length * 0.1)];
+  const worstDecileDepletionYear = worstDecileTrial.depletedAtYear;
 
   return {
     trials,
