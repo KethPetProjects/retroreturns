@@ -413,6 +413,18 @@ describe('runWithdrawalTrack — Social Security / other income / reverse mortga
     expect(withReverseMortgage.rows[0].reverseMortgageIncome).toBeCloseTo(30000, 4);
   });
 
+  it('holds reverse mortgage income flat in nominal dollars — unlike Social Security/Other Income, it does not inflate', () => {
+    const result = runWithdrawalTrack({
+      ...base,
+      reverseMortgageAnnualIncome: 30000,
+      otherAnnualIncome: 10000,
+    });
+    expect(result.rows[0].reverseMortgageIncome).toBeCloseTo(30000, 4);
+    expect(result.rows[4].reverseMortgageIncome).toBeCloseTo(30000, 4); // year 5, still flat
+    // Other Income, by contrast, inflates every year same as the expense target.
+    expect(result.rows[4].otherIncome).toBeCloseTo(10000 * Math.pow(1.03, 4), 4);
+  });
+
   it('pools other income into the same combined tax calculation as the portfolio withdrawal', () => {
     const result = runWithdrawalTrack({
       ...base,

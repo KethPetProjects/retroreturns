@@ -145,7 +145,10 @@ function projectYearlyPlan(
         ? socialSecurityAnnualBenefit * Math.pow(1 + inflationRatePct, yearIndex - socialSecurityStartYear)
         : 0;
     const otherIncome = otherAnnualIncome * inflationFactor;
-    const reverseMortgageIncome = reverseMortgageAnnualIncome * inflationFactor;
+    // Unlike Social Security/Other Income, a real reverse mortgage "tenure"
+    // payment is a fixed nominal dollar amount for life — it does not get a
+    // cost-of-living adjustment, so this deliberately does NOT inflate.
+    const reverseMortgageIncome = reverseMortgageAnnualIncome;
 
     // Reverse mortgage proceeds are loan proceeds, not taxable income, so
     // they're excluded from taxableFixedIncome but still count toward

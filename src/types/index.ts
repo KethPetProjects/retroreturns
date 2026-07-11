@@ -80,11 +80,14 @@ export interface DistributionInputs {
   /** Other taxable income (rental, dividends outside the main account, etc.), today's dollars, starting at Stop-Working Age and inflating. */
   otherAnnualIncome: number;
   /**
-   * Reverse mortgage draw, today's dollars, starting at Stop-Working Age and
-   * inflating — treated as tax-free income (real reverse mortgage proceeds
-   * are loan proceeds, not taxable). Deliberately simplified: no home value,
-   * no loan balance, no interest accrual tracked. Placeholder pending the
-   * same dedicated treatment Phase 4 is getting for whole life loans.
+   * Reverse mortgage draw, starting at Stop-Working Age, held FLAT in
+   * nominal dollars for the rest of the horizon (no inflation adjustment) —
+   * matching how a real reverse mortgage "tenure payment" works, unlike
+   * Social Security/Other Income. Treated as tax-free income (real reverse
+   * mortgage proceeds are loan proceeds, not taxable). Deliberately
+   * simplified: no home value, no loan balance, no interest accrual
+   * tracked. Placeholder pending the same dedicated treatment Phase 4 is
+   * getting for whole life loans.
    */
   reverseMortgageAnnualIncome: number;
 }

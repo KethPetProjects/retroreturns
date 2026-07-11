@@ -220,8 +220,10 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         Tax Rate are combined into one flat rate applied to portfolio withdrawals, the taxable
         portion of Social Security, and Other Income together, above one Standard Deduction — the
         same pooled way a real tax return works. Reverse Mortgage is treated as a simple tax-free
-        income stream (no home value, loan balance, or interest accrual tracked) — a placeholder
-        pending the same dedicated treatment planned for whole life policy loans.
+        income stream held flat in nominal dollars — no inflation adjustment, matching how a real
+        reverse mortgage tenure payment works (no home value, loan balance, or interest accrual
+        tracked) — a placeholder pending the same dedicated treatment planned for whole life
+        policy loans.
       </p>
     </section>
   );
