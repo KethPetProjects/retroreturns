@@ -1,6 +1,6 @@
 # Investment Return Calculator — Requirements Document
 > For Claude Code / Vibe Coding Session
-> **Status:** Phase 1 (Accumulation) — v2 draft. Distribution phase and Whole Life comparison reserved for later phases.
+> **Status:** Phases 1–3 built and deployed (Accumulation, Whole Life comparison, Distribution). Phase 4 (whole life policy loans) reserved, blocked on real policy data.
 
 ---
 
@@ -15,9 +15,10 @@ Build a **React + Vite web app** that shows what a 401k-style S&P 500 index fund
 **Deployment target:** GitHub (source control) → Azure Static Web Apps (free tier hosting), via GitHub Actions CI/CD — see Section 15 for full deployment architecture, matching the user's existing project pattern.
 
 **Phasing:**
-- **Phase 1 (this doc):** Accumulation-phase calculator — real sequenced returns vs. flat average returns
-- **Phase 2 (reserved):** Whole life insurance high cash value comparison module
-- **Phase 3 (reserved):** Distribution phase — how long funds last under withdrawal/expense assumptions
+- **Phase 1 (built):** Accumulation-phase calculator — real sequenced returns vs. flat average returns
+- **Phase 2 (built):** Whole life insurance high cash value comparison module, benchmarked against a real Penn Mutual illustration
+- **Phase 3 (built):** Distribution phase — Monte Carlo retirement withdrawal modeling, see Section 13
+- **Phase 4 (reserved):** Whole life distribution via policy loans, see Section 14 — blocked on real policy data
 
 ---
 
@@ -76,7 +77,7 @@ Results recalculate live as inputs change (debounced 300ms).
 | Starting Year | Number (year) | — required | Between 1928 and (current year − 1) |
 | Number of Years | Number (integer) | — required | Starting year + years must not exceed current year |
 | Starting Balance | Dollar amount | $0 | Initial lump sum at start of year 1 |
-| Annual Contribution | Dollar amount | $0 | Added at the **start** of each year (earns that year's return) |
+| Annual Contribution | Dollar amount | $10,000 | Added at the **start** of each year (earns that year's return) |
 | Management Fee (%) | Percentage | 0.03% | Deducted from return every single year |
 | Tax Rate (%) | Percentage | 0% | Deducted once at the end, on total growth. *(Placeholder logic — will be replaced with proper withdrawal-based tax treatment in the Phase 3 distribution module.)* |
 
@@ -298,13 +299,17 @@ This summary section is the "payoff" of the tool — it should visually emphasiz
 
 ## 7. Out of Scope for Phase 1
 
-- Whole life insurance comparison (Phase 2)
-- Distribution phase / withdrawal modeling / fund longevity (Phase 3)
+- Whole life insurance comparison (Phase 2 — now built, see Section 12)
+- Distribution phase / withdrawal modeling / fund longevity (Phase 3 — now built, see Section 13)
 - Auto-generated insight text (explicitly deferred)
 - User accounts / saved scenarios
 - Export to PDF/CSV (candidate for later phase)
 - Multiple side-by-side scenario comparison
-- Proper lot-level/withdrawal-based tax treatment (Phase 1 uses a simplified end-of-period tax haircut only)
+- Proper lot-level/withdrawal-based tax treatment (Phase 1 uses a simplified end-of-period tax haircut only; Phase 3 has its own real withdrawal-based tax model — see Section 13.5)
+
+**Explicitly considered and rejected during Phase 3 build:**
+- **Stock/bond glide path allocation** — started, then reverted per user decision before any code landed. Portfolio stays 100% S&P 500 in Distribution; risk mitigation instead comes from the cash bucket strategy (Section 13.3), which was deliberately designed to generalize into Phase 4's growth-asset-plus-buffer-asset pattern.
+- **Smooth "Average-Rate" distribution scenario** — built, then removed. It never failed and added no signal beyond what the Monte Carlo success rate/outcome distribution already shows.
 
 ---
 
@@ -351,7 +356,7 @@ This summary section is the "payoff" of the tool — it should visually emphasiz
 1. **CAGR methodology:** Money-weighted return (XIRR-style) — solves for the single annualized rate that reconciles the starting balance, every dated contribution, and the ending balance. Replaces the earlier simplified-ratio approach so the "Final CAGR" number reflects what was actually earned per dollar-year invested, not distorted by late-arriving contributions that had little time to compound.
 2. **Average-rate benchmark:** Auto-calculated as the arithmetic mean of the actual sequenced total returns over the selected period; same management fee deducted each year as the actual track, for an apples-to-apples comparison
 3. **Contribution timing:** Start of year — contributions earn that year's return
-4. **Tax treatment (Phase 1):** Simple end-of-period haircut on final balance only; will be replaced with real withdrawal-based tax logic in Phase 3 (distribution phase)
+4. **Tax treatment (Phase 1):** Simple end-of-period haircut on final balance only. Phase 3 has its own separate, real withdrawal-based tax model (combined federal + state flat rate above a standard deduction, pooling all income sources) — see Section 13.5.
 
 ---
 
@@ -505,105 +510,99 @@ opportunity_cost_balance_avg[year] = [Phase 1 engine output using non_appua_prem
 
 ---
 
-## 13. Phase 3 — Distribution Phase (Requirements Draft)
+## 13. Phase 3 — Distribution Phase (Built)
 
-**Status:** Requirements captured, not yet built. Builds on Phase 1's accumulation engine — this phase picks up where accumulation ends and models the drawdown.
-
-**🚫 NOT IN SCOPE for the current build session.** This section is fully documented for future reference and to inform architectural decisions in Phase 1/2 (e.g., keeping calculation logic decoupled per Section 6's forward-compatibility note), but Claude Code should NOT build the Distribution tab, tab navigation/routing, or any Phase 3 calculation logic in this session. Revisit this spec (and refine it against the real, running Phase 1/2 app) before starting a dedicated Phase 3 build session.
+**Status:** Built and deployed. Consumes Phase 1's accumulation engine — the Distribution tab picks up wherever accumulation ends (or at any point during it, see 13.2) and models the drawdown via Monte Carlo simulation, not a two-scenario comparison as originally drafted.
 
 ### 13.1 Concept
 
-Once contributions stop (retirement / stop-working point), the remaining balance continues to grow — but instead of adding money each year, the user now **withdraws** a percentage of the balance annually. The question this phase answers: **"How long will my money actually last, given real market volatility — not just an assumed flat average return?"**
+Once contributions stop, the balance is drawn down at a fixed, inflation-adjusted, tax-grossed-up net spending target every year. The question this phase answers: **"How long will my money actually last, given real market volatility — not just an assumed flat average return?"**
 
-Like Phase 1, this should show **both tracks side by side**:
-1. **Distribution under the Average-Rate assumption** — smooth, predictable, same withdrawal %, easy to model, but unrealistic
-2. **Distribution under real sequenced (volatile) returns** — using actual historical year-by-year returns, which is what real retirees actually experience, and which can deplete a portfolio much faster than the average-rate math suggests if bad years hit early in retirement (this is the classic "sequence of returns risk in retirement" problem — the mirror image of what Phase 1 explored in accumulation)
+Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which mirrored Phase 1's chart), Phase 3 ships as a **Monte Carlo simulation**: hundreds to thousands of independent trials, each bootstrap-resampling annual returns *with replacement* from the real historical S&P 500 total-return pool (1928–2025), rather than replaying one fixed historical sequence or a smooth average rate. This captures a full distribution of possible outcomes instead of a single arbitrary path. A flat "Average-Rate" scenario was built and then explicitly removed — it never failed and added no signal beyond what the Monte Carlo success rate and outcome distribution already show.
 
-### 13.2 New Inputs for Phase 3
+### 13.2 Inputs
 
-| Field | Type | Notes |
-|---|---|---|
-| Current Age | Number | User's age today — needed to map the accumulation timeline (Phase 1's Starting Year + Number of Years) to a real age progression |
-| Stop-Working Age | Number | The age at which contributions stop and withdrawals begin. Must be validated against Current Age + Phase 1's Number of Years — see validation note below |
-| Distribution Rate (%) | Percentage | Annual withdrawal, calculated as a % of the balance **at the moment distribution begins**, then held as a fixed dollar amount going forward (see 13.3) |
-| Inflation Adjustment (%) | Percentage | Annual rate used to increase the fixed-dollar withdrawal each year, so real purchasing power is maintained. Reuses Phase 1's inflation input if already provided |
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| Current Age | Number | 35 | User's age today |
+| Stop-Working Age | Number | 65 | The age at which contributions stop and withdrawals begin. Can fall **anywhere during Phase 1's accumulation window**, not just at its end — retiring 27 years into a 30-year accumulation run uses year 27's actual balance, not year 30's |
+| Plan Through Age | Number | 95 | Horizon the simulation runs to if funds don't deplete first |
+| Annual Expense ($, net) | Dollar amount | $80,000 | Year-1 **take-home** spend target — each year's gross portfolio withdrawal is solved so that, after tax, the retiree nets this amount (adjusted for inflation). Replaces the original draft's "Distribution Rate (%) of balance" input |
+| Inflation Adjustment (%) | Percentage | 3% | Grows the net expense target, standard deduction, and other income streams each year |
+| Standard Deduction ($) | Dollar amount | $15,000 | Year-1 dollars, grows with inflation; the threshold above which the combined tax rate applies |
+| Federal Tax Rate (%) | Percentage | 15% | Flat rate, not real progressive brackets — a deliberate simplification |
+| State Tax Rate (%) | Percentage | 5% | Combined with Federal Tax Rate into one flat rate — a simplification of real state tax rules (own brackets/deductions), not a full state tax model |
+| Management Fee (%) | Percentage | 0.03% | Deducted from the stock portion's return every year |
+| Cash Bucket (years of expenses) | Number | 2 | See 13.3. 0 disables the bucket entirely |
+| Cash Bucket Interest Rate (%) | Percentage | 2.5% | Money-market rate on the cash bucket — fixed, not tied to historical volatility |
+| Social Security Annual Benefit ($) | Dollar amount | $0 | Today's-dollars annual benefit, starting at Social Security Claiming Age and inflating from there |
+| Social Security Claiming Age | Number | 67 | **Independent of Stop-Working Age** — many people delay claiming past when they stop working |
+| Social Security Taxable Portion (%) | Percentage | 85% | Simplified flat stand-in for the real up-to-85%-taxable sliding-scale IRS rule |
+| Other Annual Income ($) | Dollar amount | $0 | Rents/dividends outside the main account, today's dollars, starting at Stop-Working Age and inflating |
+| Reverse Mortgage Annual Income ($) | Dollar amount | $0 | See 13.6 — simplified, tax-free, placeholder pending Phase 4-style dedicated treatment |
 
-**Validation rule:** Stop-Working Age must correspond to a year within (or immediately following) Phase 1's simulated accumulation window — i.e., `starting_year + (stop_working_age - current_age)` must fall within a sensible range relative to `starting_year + number_of_years`. If the stop-working age implies distribution should begin before accumulation ends, or long after it, surface a clear validation message so the two phases stay temporally consistent.
+All dollar income fields (Social Security, Other Income, Reverse Mortgage) are **annual**, matching Annual Expense's convention.
 
-### 13.3 Distribution Basis — Confirmed: Fixed-Dollar, Inflation-Adjusted
+**Validation rule:** `starting_year + (stop_working_age - current_age)` must fall within (or at most one year past) Phase 1's simulated accumulation window, so the two phases stay temporally consistent. Retiring before accumulation starts, or long enough after it ends that there's an unmodeled growth gap, is rejected with a clear message.
 
-**Decision:** Withdrawals are calculated as a fixed dollar amount, not a % of the current (fluctuating) balance.
+### 13.3 Withdrawal Mechanics: Fixed-Dollar, Tax-Grossed-Up, Cash Bucket
 
-- In year 1 of retirement: `initial_withdrawal = balance_at_retirement * distribution_rate`
-- Every year after: `withdrawal[j] = initial_withdrawal * (1 + inflation_rate)^(j-1)` — grows with inflation to maintain constant real purchasing power, but does **not** fluctuate with market performance
-- This means withdrawals are predictable in dollar terms and the simulation can reach a clean "$0 balance" depletion point — unlike a %-of-current-balance approach, which decays asymptotically and never cleanly hits zero
-- This matches how most real-world retirement withdrawal-rate research (e.g., the "4% rule") is modeled, so it's a defensible, industry-standard choice
+**Basis (confirmed, unchanged from the original draft's intent):** Withdrawals target a fixed, inflation-adjusted **net** dollar amount, not a % of the fluctuating balance — this lets the simulation reach a clean "$0 balance" depletion point and matches how real-world withdrawal-rate research (e.g., the "4% rule") is modeled.
 
-### 13.3 Calculation Logic (Distribution Phase)
+**Cash bucket strategy (added during build, not in the original draft):** An optional number of years of upcoming portfolio withdrawals can be held in a separate low-volatility cash account (its own interest rate) and drawn down first, so ordinary spending doesn't force a stock sale during a downturn. The bucket is topped back up from stocks **only in years the stock return was positive** — refilling after a down year would mean selling stocks at a loss, defeating the point of the buffer. `cashBucketYears = 0` disables it entirely (a plain single-balance withdrawal engine).
 
-Continues directly from Phase 1's ending balance and reuses the same historical return sequence, just switching from contribution-mode to withdrawal-mode:
+This was deliberately built as a reusable "growth asset + buffer asset" pattern — a stock/bond glide path was explored first and explicitly rejected in favor of this, specifically so the same mechanic can later apply to Phase 4 (S&P 500 + cash now, whole life cash value as the buffer later).
+
+**Verified finding:** the cash bucket modestly improves the worst-decile (bad-case) outcome by delaying forced stock sales during downturns, but slightly *reduces* the overall average success rate (a small, consistent cash-drag opportunity cost) — matching published bucket-strategy research. It's a tail-risk tool, not a free win.
+
+### 13.4 Volatility Modeling: Monte Carlo, Not a Two-Scenario Comparison
+
+Each of `monteCarloTrials` (default 1,000) independent trials draws its own random sequence of annual returns, sampled **with replacement** from the real historical S&P 500 total-return pool (`HISTORICAL_TOTAL_RETURN_POOL`, 1928–2025, unaltered real data — verified, not inflated). This replaces the original draft's two fixed scenarios (a smooth average rate and a single replayed 30-year historical sequence).
+
+**Known methodological limitation (flagged, not yet fixed):** returns are drawn i.i.d. — there's no clustering of real bear/bull markets the way actual history exhibits autocorrelation. A block-bootstrap (resampling multi-year chunks instead of single years) would capture that more realistically; not built, since it wasn't required for the current scope.
+
+### 13.5 Tax Model — Real Withdrawal-Based Logic (Not a Placeholder)
+
+Unlike Phase 1's simple end-of-period haircut, Phase 3 solves for the exact gross portfolio withdrawal needed each year so that, after tax, the retiree nets the target spend — closed-form (not iterative).
+
+**Combined multi-source pooling:** portfolio withdrawal + the taxable portion of Social Security + Other Income are pooled into **one** combined taxable-income figure, taxed at the combined (Federal + State) flat rate above **one** standard deduction — mirroring how a real household files one unified tax return rather than taxing each income source separately. Reverse Mortgage income is excluded from taxable income entirely (real reverse mortgage proceeds are loan proceeds, not income), but still counts as spendable cash that reduces how much needs to come from the portfolio.
 
 ```
-// Carries over from Phase 1's final actual_balance[N] and average_balance[N]
-// Retirement begins at: retirement_year = starting_year + (stop_working_age - current_age)
-
-initial_withdrawal_actual = actual_balance[N] * distribution_rate
-initial_withdrawal_avg = average_balance[N] * distribution_rate
-
-For year j (1 to M, where M = years in retirement, until balance hits zero or runs out of historical data):
-  year_label = retirement_year + j - 1
-  total_return[j] = historical_sp500_total_return[year_label]   // same real sequence, continuing forward
-
-  // fixed-dollar withdrawal, inflation-adjusted each year — does NOT vary with balance or market performance
-  withdrawal_actual[j] = initial_withdrawal_actual * (1 + inflation_rate)^(j-1)
-  withdrawal_avg[j] = initial_withdrawal_avg * (1 + inflation_rate)^(j-1)
-
-  // ACTUAL (volatile) track
-  net_return_actual[j] = total_return[j] - fee
-  actual_retirement_balance[j] = (actual_retirement_balance[j-1] - withdrawal_actual[j]) * (1 + net_return_actual[j])
-
-  // AVERAGE-RATE track
-  net_avg_return[j] = avg_rate - fee
-  average_retirement_balance[j] = (average_retirement_balance[j-1] - withdrawal_avg[j]) * (1 + net_avg_return[j])
-
-  // Depletion check
-  if balance <= 0: mark "Funds Depleted in Year j" and stop that track's simulation
+netFromPortfolio = netExpenseTarget - fixedIncome   // fixedIncome = SS + otherIncome + reverseMortgage
+grossWithdrawal  = solve G such that:
+  G - max(0, (G + taxableFixedIncome) - standardDeduction) * combinedTaxRate = netFromPortfolio
+  // taxableFixedIncome = SS * socialSecurityTaxablePortionPct + otherIncome
 ```
 
-**Note:** Since withdrawals grow with inflation regardless of market performance, a track can be depleted purely by a bad sequence of early returns even if the average rate would have sustained it indefinitely — this is precisely the sequence-of-returns risk this phase is designed to expose.
+Social Security starts at its own **Claiming Age** (independent of Stop-Working Age) and inflates from that year forward, not from year 1 of retirement — so a not-yet-claimed benefit doesn't look like it already grew with inflation while waiting.
 
-**Output:** for each track, either "funds lasted the full M years" with an ending balance, or "funds depleted in year X" with the exact year flagged — this is the headline answer to "how long will my money last."
+### 13.6 Reverse Mortgage — Simplified Placeholder
 
-### 13.4 Open Questions — Resolved and Remaining
+Modeled as a flat, tax-free annual income stream only. **Deliberately excludes** home value, loan balance, and interest accrual — a full model would need those, but this is a placeholder pending the same dedicated treatment planned for Phase 4's whole life policy loans (Section 14), not a finished reverse-mortgage feature.
 
-**Resolved:**
-1. ✅ **Timeline connection:** Age-based stop-working input, connected to Current Age and Phase 1's timeline (Section 13.2)
-2. ✅ **Distribution basis:** Fixed-dollar, inflation-adjusted withdrawals (Section 13.3)
+### 13.7 Outputs
 
-3. ✅ **Future retirement modeling — resolved.** Since retirement is modeled as happening in the *future* (not necessarily continuing the exact historical year sequence used in Phase 1), Phase 3 doesn't hit a "historical data runs out" problem in the way originally framed. Instead, Phase 3 runs **two comparison scenarios**, both illustrative rather than tied to specific future calendar years:
-   - **Scenario A — Standard/Average S&P 500 Rate:** withdrawals modeled against a smooth flat average rate (the same kind of arithmetic-mean rate used in Phase 1's "Average-Rate" track)
-   - **Scenario B — Volatility-Drag Rate:** withdrawals modeled using the **realized sequence of returns from the most recent 30 years** (i.e., replaying that actual historical sequence forward as the assumed future pattern), which captures real-world volatility drag rather than assuming smooth annual growth
+- **Monte Carlo Success Rate:** % of trials that survived the full horizon without depleting
+- **Median Outcome:** the middle-ranked trial's depletion year, or "lasted through age X"
+- **Worst-Decile Outcome:** the depletion year at the 10th percentile of outcomes — a bad-case reference point, not the single worst trial
+- **Chart:** the single trial closest to the median outcome, plotted as Total / S&P 500 Portion (stock) / Cash Bucket lines, anchored at the true pre-withdrawal starting balance (a "year 0" point) so the line doesn't visibly jump on recompute
+- **Year-by-Year table:** full breakdown for that same median trial — Year, Age, Beginning Balance, S&P Return, Gross Withdrawal, Social Security, Other Income, Reverse Mortgage, Tax Owed, Stock Balance, Cash Balance, Refilled?, Ending Balance
 
-   This reuses the same "Actual vs. Average" comparison framework from Phase 1, just applied prospectively to retirement rather than retrospectively to accumulation. **Note for Claude Code:** "most recent 30 years" should be dynamically calculated as of the current date, not hardcoded, so the tool stays accurate as time passes.
+### 13.8 Resolved Decisions Log
 
-4. ✅ **App structure — resolved.** Phase 3 is a **separate tab/screen** from Phase 1, not a single continuous page. Navigation flow:
-   - **Tab 1: Accumulation** — Phase 1's existing input panel, chart, and table
-   - **Tab 2: Distribution** — Phase 3's retirement withdrawal modeling
-   - The Distribution tab's starting balance is **carried over automatically from wherever Phase 1's accumulation simulation ended** (i.e., `actual_balance[N]` and `average_balance[N]` from Tab 1 become the two starting balances for Tab 2's two scenarios) — the user shouldn't have to re-enter their ending balance manually
-   - Fee and tax inputs: Phase 3 reuses Phase 1's fee input by default, but should allow override within the Distribution tab if the user wants to model a different (e.g., lower) fee in retirement. Tax treatment for Phase 3 remains a placeholder end-of-period-style haircut for now, consistent with Phase 1, unless/until a more detailed withdrawal-based tax model is scoped separately.
-
-### 13.5 Output Additions for Phase 3
-
-- Extension of the same results table format (Year, Withdrawal Amount, Return %, Ending Balance) for both tracks, continuing the row numbering from Phase 1
-- Extension of the same growth chart, now showing the balance declining during retirement — critically, the **Actual (volatile) line and Average-Rate line will diverge in the *opposite* direction from Phase 1's chart**, since sequence-of-returns risk in retirement typically makes the actual/volatile line deplete *faster* than the smooth average-rate line, not slower
-- New headline metric: **"Funds lasted X years"** or **"Funds fully depleted in [year]"** for each track
-- New summary comparison: **"The real-world sequence of returns depleted your funds N years earlier than the average-rate projection suggested"** (or later, if that's what the data shows — should not assume the direction, just report it)
+1. ✅ Distribution basis: fixed-dollar, inflation-adjusted, tax-grossed-up net spend target (13.3), not a %-of-balance rate
+2. ✅ Volatility modeling: Monte Carlo bootstrap over the real historical return pool (13.4), not a smooth Average-Rate scenario or a single replayed historical sequence — both considered, and the Average-Rate scenario was built then removed as low-value
+3. ✅ Portfolio allocation stays 100% S&P 500 in Distribution — a stock/bond glide path was explored and reverted before landing; risk mitigation instead comes from the cash bucket (13.3)
+4. ✅ Starting balance carries over from Phase 1's **pre-tax** `actualBalance` at whichever accumulation year corresponds to Stop-Working Age (not always the final year), since Phase 3 applies its own withdrawal-based tax treatment year by year — starting from an already-taxed lump sum would double-tax the money
+5. ✅ Tax model: combined Federal + State flat rate, pooled across all taxable income sources above one standard deduction (13.5) — not the placeholder end-of-period haircut Phase 1 uses
 
 ---
 
 ## 14. Phase 4 — Whole Life Distribution via Policy Loans (Requirements Draft)
 
 **Status:** Requirements captured, not yet built. Mirrors Phase 3's distribution concept but applied to the Phase 2 whole life track, using policy loans instead of withdrawals.
+
+**Precedent already in place:** Phase 3's cash bucket strategy (Section 13.3) was deliberately designed as a reusable "growth asset + buffer asset" pattern — S&P 500 as the growth asset, a cash account as the buffer, drawn first and refilled only in up years. Phase 4 is expected to reuse this same shape with whole life cash value standing in for the cash buffer, once real policy loan data is available.
 
 **🚫 NOT IN SCOPE for the current build session, and not yet fully data-complete.** In addition to being deferred alongside Phase 3, this phase is specifically blocked on real policy data (direct vs. non-direct recognition status, actual loan interest rate, overloan protection rider status — see Section 14.5). Do not attempt to build this phase with placeholder/generic loan assumptions.
 
