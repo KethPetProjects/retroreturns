@@ -49,8 +49,12 @@ export interface WithdrawalYearResult {
   netExpenseTarget: number;
   grossWithdrawal: number;
   taxOwed: number;
-  returnApplied: number;
+  returnApplied: number; // stock return applied this year
   endingBalance: number;
+  stockBalance: number;
+  cashBalance: number;
+  /** Whether the cash bucket was topped back up from stocks this year. */
+  refilled: boolean;
 }
 
 export interface WithdrawalTrackResult {
@@ -60,13 +64,47 @@ export interface WithdrawalTrackResult {
   finalBalance: number;
 }
 
+function projectGrossWithdrawals(
+  years: number,
+  annualExpense: number,
+  inflationRatePct: number,
+  standardDeduction: number,
+  taxRatePct: number,
+): number[] {
+  const projected: number[] = [];
+  for (let i = 0; i < years; i++) {
+    const inflationFactor = Math.pow(1 + inflationRatePct, i);
+    const netExpenseTarget = annualExpense * inflationFactor;
+    const yearStandardDeduction = standardDeduction * inflationFactor;
+    projected.push(grossUpWithdrawal(netExpenseTarget, yearStandardDeduction, taxRatePct));
+  }
+  return projected;
+}
+
+/** Sum of the next cashBucketYears years' projected gross withdrawals, starting at fromIndex (0-based), capped at however many years remain. */
+function cashBucketTarget(projected: number[], fromIndex: number, cashBucketYears: number): number {
+  let target = 0;
+  const end = Math.min(fromIndex + cashBucketYears, projected.length);
+  for (let k = fromIndex; k < end; k++) {
+    target += projected[k];
+  }
+  return target;
+}
+
 /**
- * Generic year-by-year withdrawal engine (Section 13.3): each year, a
- * net-of-tax expense target (grown by inflation from the year-1 input) is
- * grossed up to a pre-tax withdrawal, pulled from the balance, and then
- * that year's return is applied to what's left. Stops the moment the
- * balance hits zero — matches Section 13.3's "stop that track's simulation"
- * behavior rather than continuing to simulate a already-depleted account.
+ * Year-by-year withdrawal engine (Section 13.3), extended with an optional
+ * cash "bucket" strategy: cashBucketYears worth of upcoming withdrawals are
+ * held in a low-volatility cash account (earning cashInterestRatePct) and
+ * drawn down first, so ordinary withdrawals don't force stock sales during a
+ * market downturn. The bucket is topped back up from stocks only in years
+ * the stock return was positive — refilling after a down year would sell
+ * stocks at a loss, defeating the point of holding the buffer. If a
+ * downturn drains the bucket before a refill opportunity comes, the
+ * shortfall is pulled from stocks that year regardless (unavoidable, but
+ * visible via each row's stockBalance/cashBalance split).
+ *
+ * cashBucketYears = 0 (the default) disables the bucket — every withdrawal
+ * comes straight from a single balance, same as a plain withdrawal engine.
  */
 export function runWithdrawalTrack(
   startingBalance: number,
@@ -76,26 +114,59 @@ export function runWithdrawalTrack(
   standardDeduction: number,
   taxRatePct: number,
   feePct: number,
+  cashBucketYears: number = 0,
+  cashInterestRatePct: number = 0,
 ): WithdrawalTrackResult {
+  const projected = projectGrossWithdrawals(
+    returns.length,
+    annualExpense,
+    inflationRatePct,
+    standardDeduction,
+    taxRatePct,
+  );
+
+  const initialCashTarget = cashBucketTarget(projected, 0, cashBucketYears);
+  let cashBalance = Math.min(startingBalance, initialCashTarget);
+  let stockBalance = startingBalance - cashBalance;
+
   const rows: WithdrawalYearResult[] = [];
-  let balance = startingBalance;
   let depletedAtYear: number | null = null;
 
   for (let i = 0; i < returns.length; i++) {
-    if (balance <= 0) break;
+    if (stockBalance <= 0 && cashBalance <= 0) break;
 
     const yearIndex = i + 1;
     const inflationFactor = Math.pow(1 + inflationRatePct, i);
     const netExpenseTarget = annualExpense * inflationFactor;
     const yearStandardDeduction = standardDeduction * inflationFactor;
-    const grossWithdrawal = grossUpWithdrawal(netExpenseTarget, yearStandardDeduction, taxRatePct);
+    const grossWithdrawal = projected[i];
     const taxOwed = computeTaxOwed(grossWithdrawal, yearStandardDeduction, taxRatePct);
 
-    const beginningBalance = balance;
-    const afterWithdrawal = beginningBalance - grossWithdrawal;
+    const beginningBalance = stockBalance + cashBalance;
+
+    // Draw from cash first; any shortfall is a forced stock sale.
+    const fromCash = Math.min(cashBalance, grossWithdrawal);
+    cashBalance -= fromCash;
+    const fromStock = Math.min(stockBalance, grossWithdrawal - fromCash);
+    stockBalance -= fromStock;
+
     const returnApplied = returns[i];
-    const endingBalanceRaw = afterWithdrawal * (1 + returnApplied - feePct);
-    const endingBalance = Math.max(0, endingBalanceRaw);
+    stockBalance = Math.max(0, stockBalance * (1 + returnApplied - feePct));
+    cashBalance = Math.max(0, cashBalance * (1 + cashInterestRatePct));
+
+    // Refill only after an up year — never sell stocks low just to top off cash.
+    let refilled = false;
+    if (returnApplied > 0 && cashBucketYears > 0) {
+      const target = cashBucketTarget(projected, i + 1, cashBucketYears);
+      const transfer = Math.min(Math.max(0, target - cashBalance), stockBalance);
+      if (transfer > 0) {
+        stockBalance -= transfer;
+        cashBalance += transfer;
+        refilled = true;
+      }
+    }
+
+    const endingBalance = stockBalance + cashBalance;
 
     rows.push({
       year: yearIndex,
@@ -105,16 +176,17 @@ export function runWithdrawalTrack(
       taxOwed,
       returnApplied,
       endingBalance,
+      stockBalance,
+      cashBalance,
+      refilled,
     });
 
-    if (endingBalanceRaw <= 0) {
+    if (endingBalance <= 0) {
       depletedAtYear = yearIndex;
     }
-
-    balance = endingBalance;
   }
 
-  return { rows, depletedAtYear, finalBalance: balance };
+  return { rows, depletedAtYear, finalBalance: stockBalance + cashBalance };
 }
 
 export interface MonteCarloResult {
@@ -153,6 +225,8 @@ export function runMonteCarloDistribution(
   feePct: number,
   trials: number,
   randomFn: () => number = Math.random,
+  cashBucketYears: number = 0,
+  cashInterestRatePct: number = 0,
 ): MonteCarloResult {
   const results: WithdrawalTrackResult[] = [];
 
@@ -162,7 +236,17 @@ export function runMonteCarloDistribution(
       () => historicalReturnPool[Math.floor(randomFn() * historicalReturnPool.length)],
     );
     results.push(
-      runWithdrawalTrack(startingBalance, returns, annualExpense, inflationRatePct, standardDeduction, taxRatePct, feePct),
+      runWithdrawalTrack(
+        startingBalance,
+        returns,
+        annualExpense,
+        inflationRatePct,
+        standardDeduction,
+        taxRatePct,
+        feePct,
+        cashBucketYears,
+        cashInterestRatePct,
+      ),
     );
   }
 
@@ -228,8 +312,17 @@ export function runDistributionComparison(
 ): DistributionComparisonResult {
   const { startingBalanceActual, distributionInputs, monteCarloTrials = DEFAULT_MONTE_CARLO_TRIALS, randomFn } =
     inputs;
-  const { stopWorkingAge, planThroughAge, annualExpense, inflationRatePct, standardDeduction, taxRatePct, managementFeePct } =
-    distributionInputs;
+  const {
+    stopWorkingAge,
+    planThroughAge,
+    annualExpense,
+    inflationRatePct,
+    standardDeduction,
+    taxRatePct,
+    managementFeePct,
+    cashBucketYears,
+    cashInterestRatePct,
+  } = distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
 
   const monteCarlo = runMonteCarloDistribution(
@@ -243,6 +336,8 @@ export function runDistributionComparison(
     managementFeePct,
     monteCarloTrials,
     randomFn,
+    cashBucketYears,
+    cashInterestRatePct,
   );
 
   return { years, monteCarlo };
@@ -264,8 +359,17 @@ export function validateDistributionInputs(
   phase1: { startingYear: number; numberOfYears: number },
 ): DistributionValidationError[] {
   const errors: DistributionValidationError[] = [];
-  const { currentAge, stopWorkingAge, planThroughAge, annualExpense, standardDeduction, taxRatePct, managementFeePct } =
-    inputs;
+  const {
+    currentAge,
+    stopWorkingAge,
+    planThroughAge,
+    annualExpense,
+    standardDeduction,
+    taxRatePct,
+    managementFeePct,
+    cashBucketYears,
+    cashInterestRatePct,
+  } = inputs;
 
   if (currentAge === undefined || Number.isNaN(currentAge) || currentAge < 0) {
     errors.push({ field: 'currentAge', message: 'Current age is required.' });
@@ -301,6 +405,17 @@ export function validateDistributionInputs(
 
   if (managementFeePct !== undefined && (managementFeePct < 0 || managementFeePct > 0.02)) {
     errors.push({ field: 'managementFeePct', message: 'Management fee must be between 0% and 2%.' });
+  }
+
+  if (cashBucketYears !== undefined && (cashBucketYears < 0 || cashBucketYears > 10)) {
+    errors.push({ field: 'cashBucketYears', message: 'Cash bucket years must be between 0 and 10.' });
+  }
+
+  if (cashInterestRatePct !== undefined && (cashInterestRatePct < 0 || cashInterestRatePct > 0.1)) {
+    errors.push({
+      field: 'cashInterestRatePct',
+      message: 'Cash interest rate must be between 0% and 10%.',
+    });
   }
 
   if (currentAge !== undefined && stopWorkingAge !== undefined && !Number.isNaN(currentAge) && !Number.isNaN(stopWorkingAge)) {

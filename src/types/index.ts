@@ -65,4 +65,8 @@ export interface DistributionInputs {
   standardDeduction: number; // year-1 dollars, grows with inflation
   taxRatePct: number;
   managementFeePct: number;
+  /** Years of upcoming withdrawals held in cash, drawn down first so stocks aren't sold in a downturn. 0 disables the bucket entirely. */
+  cashBucketYears: number;
+  /** Money-market interest rate earned on the cash bucket — fixed, not tied to historical volatility (real money-market funds don't crash the way stocks/bonds can). */
+  cashInterestRatePct: number;
 }

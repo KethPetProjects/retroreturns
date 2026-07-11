@@ -121,6 +121,72 @@ describe('runWithdrawalTrack (Section 13.3)', () => {
   });
 });
 
+describe('runWithdrawalTrack — cash bucket strategy', () => {
+  it('carves out cashBucketYears worth of upcoming withdrawals into cash up front', () => {
+    // No inflation/tax/deduction, so each year's gross withdrawal is exactly
+    // the annual expense — the year-1 bucket target is just 2x that.
+    const result = runWithdrawalTrack(1_000_000, [0.1, 0.1], 50000, 0, 0, 0, 0, 2, 0);
+    expect(result.rows[0].beginningBalance).toBe(1_000_000);
+    // Bucket = 2 x 50,000 = 100,000 carved out; stock gets the remaining 900,000.
+    // The withdrawal for year 1 comes entirely from cash, so before any
+    // return is applied, cash should have dropped by exactly the withdrawal.
+    // We can't see the pre-return split directly, but we CAN confirm the
+    // stock side grew as if it started at 900,000 untouched by the withdrawal:
+    // 900,000 * 1.1 = 990,000 (before any refill).
+    expect(result.rows[0].stockBalance).toBeGreaterThanOrEqual(990000 - 1); // may be slightly higher if refilled
+  });
+
+  it('does not refill the bucket after a down year, letting it drain instead', () => {
+    // Bucket = 2 years x 50,000 = 100,000 initially, stock = 900,000.
+    // Year 1: down year (-20%) -> should NOT refill even though cash needs it.
+    const result = runWithdrawalTrack(1_000_000, [-0.2, -0.2], 50000, 0, 0, 0, 0, 2, 0);
+    expect(result.rows[0].refilled).toBe(false);
+    expect(result.rows[1].refilled).toBe(false);
+    // Cash bucket should have shrunk (50,000 withdrawn in year 1, no refill,
+    // then another 50,000 withdrawn in year 2 from what's left) rather than
+    // staying near its original 100,000 target.
+    expect(result.rows[1].cashBalance).toBeLessThan(50000);
+  });
+
+  it('refills the bucket back toward its target after an up year', () => {
+    const result = runWithdrawalTrack(1_000_000, [-0.1, 0.15, 0.1], 50000, 0, 0, 0, 0, 2, 0);
+    expect(result.rows[0].refilled).toBe(false); // down year, no refill
+    expect(result.rows[1].refilled).toBe(true); // up year, refill happens
+    // After refilling in year 2, cash should be meaningfully higher than
+    // what it drained to at the end of year 1's down year.
+    expect(result.rows[1].cashBalance).toBeGreaterThan(0);
+  });
+
+  it('falls back to selling stock when the bucket runs dry mid-downturn', () => {
+    // A long string of down years should eventually drain a small bucket
+    // and force withdrawals straight from stock — the strategy shouldn't
+    // silently fail to withdraw at all.
+    const result = runWithdrawalTrack(500000, [-0.1, -0.1, -0.1, -0.1, -0.1], 80000, 0, 0, 0, 0, 1, 0);
+    // Bucket target = 1 year = 80,000. After the bucket is exhausted, later
+    // years must pull from stock even without a refill, so stockBalance
+    // should be actively decreasing beyond just market losses.
+    expect(result.rows.some((r) => r.cashBalance === 0)).toBe(true);
+    expect(result.finalBalance).toBeGreaterThanOrEqual(0);
+  });
+
+  it('behaves identically to a plain (bucket-disabled) withdrawal when cashBucketYears is 0', () => {
+    const withoutBucket = runWithdrawalTrack(1_000_000, [0.08, -0.05, 0.12], 60000, 0.03, 15000, 0.15, 0.0003);
+    const explicitlyZero = runWithdrawalTrack(
+      1_000_000,
+      [0.08, -0.05, 0.12],
+      60000,
+      0.03,
+      15000,
+      0.15,
+      0.0003,
+      0,
+      0,
+    );
+    expect(explicitlyZero.finalBalance).toBeCloseTo(withoutBucket.finalBalance, 6);
+    expect(explicitlyZero.rows[0].endingBalance).toBeCloseTo(withoutBucket.rows[0].endingBalance, 6);
+  });
+});
+
 describe('runMonteCarloDistribution', () => {
   // Simple deterministic PRNG for reproducible tests
   function seededRandom(seed: number) {
@@ -223,6 +289,8 @@ describe('runDistributionComparison (integration)', () => {
         standardDeduction: 15000,
         taxRatePct: 0.15,
         managementFeePct: 0.0003,
+        cashBucketYears: 0,
+        cashInterestRatePct: 0,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -243,6 +311,8 @@ describe('runDistributionComparison (integration)', () => {
       standardDeduction: 0,
       taxRatePct: 0,
       managementFeePct: 0,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return

@@ -44,6 +44,8 @@ const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
   standardDeduction: 15000,
   taxRatePct: 0.15,
   managementFeePct: 0.0003,
+  cashBucketYears: 2,
+  cashInterestRatePct: 0.025,
 };
 
 function App() {

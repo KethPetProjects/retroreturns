@@ -97,11 +97,44 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
             onChange={(v) => update('managementFeePct', v / 100)}
           />
         </Field>
+
+        <Field label="Cash Bucket (years of expenses)" error={fieldError(validationErrors, 'cashBucketYears')}>
+          <NumberField
+            className="input"
+            min={0}
+            max={10}
+            step={1}
+            value={inputs.cashBucketYears}
+            onChange={(v) => update('cashBucketYears', v)}
+          />
+        </Field>
+
+        <Field
+          label="Cash Bucket Interest Rate (%)"
+          error={fieldError(validationErrors, 'cashInterestRatePct')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            max={10}
+            step={0.25}
+            decimal
+            value={inputs.cashInterestRatePct * 100}
+            onChange={(v) => update('cashInterestRatePct', v / 100)}
+          />
+        </Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">
         Annual Expense is the take-home amount you want to actually spend — each year's withdrawal is
         grossed up above the standard deduction so that, after tax, you net this amount (adjusted for
         inflation).
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        The portfolio stays 100% S&amp;P 500. Cash Bucket holds that many years of upcoming
+        withdrawals in a separate money-market account, drawn down first — so ordinary spending
+        never forces a stock sale. The bucket is only topped back up from stocks in years the
+        market was up; in down years it just drains, which is the whole point (it protects you
+        from selling stocks low). Set to 0 to disable and withdraw straight from stocks.
       </p>
     </section>
   );

@@ -46,6 +46,8 @@ export function useDistribution(args: UseDistributionArgs): UseDistributionResul
     args.distributionInputs.standardDeduction,
     args.distributionInputs.taxRatePct,
     args.distributionInputs.managementFeePct,
+    args.distributionInputs.cashBucketYears,
+    args.distributionInputs.cashInterestRatePct,
     args.startingBalanceActual,
     args.phase1.startingYear,
     args.phase1.numberOfYears,

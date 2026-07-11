@@ -18,7 +18,8 @@ interface DistributionChartProps {
 
 export function DistributionChart({ result, stopWorkingAge }: DistributionChartProps) {
   const { monteCarlo } = result;
-  const startingBalance = monteCarlo.medianTrialRows[0]?.beginningBalance;
+  const firstRow = monteCarlo.medianTrialRows[0];
+  const startingBalance = firstRow?.beginningBalance;
 
   // A "year 0" point at the true pre-withdrawal starting balance, so the
   // line always visibly starts from the same place — without it, the first
@@ -26,10 +27,14 @@ export function DistributionChart({ result, stopWorkingAge }: DistributionChartP
   // withdrawal, which made the chart's apparent starting point jump around
   // on every recompute even though the real starting balance never changed.
   const chartData = [
-    ...(startingBalance !== undefined ? [{ age: stopWorkingAge - 1, balance: startingBalance }] : []),
+    ...(startingBalance !== undefined
+      ? [{ age: stopWorkingAge - 1, total: startingBalance, stock: undefined, cash: undefined }]
+      : []),
     ...monteCarlo.medianTrialRows.map((row, i) => ({
       age: stopWorkingAge + i,
-      balance: row.endingBalance,
+      total: row.endingBalance,
+      stock: row.stockBalance,
+      cash: row.cashBalance,
     })),
   ];
 
@@ -64,10 +69,28 @@ export function DistributionChart({ result, stopWorkingAge }: DistributionChartP
             <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
             <Line
               type="monotone"
-              dataKey="balance"
-              name="Balance (median simulated path)"
+              dataKey="total"
+              name="Total Balance"
               stroke="#4ade80"
               strokeWidth={2.5}
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="stock"
+              name="S&P 500 Portion"
+              stroke="#38bdf8"
+              strokeWidth={1.5}
+              strokeDasharray="4 4"
+              dot={false}
+            />
+            <Line
+              type="monotone"
+              dataKey="cash"
+              name="Cash Bucket"
+              stroke="#facc15"
+              strokeWidth={1.5}
+              strokeDasharray="2 3"
               dot={false}
             />
           </LineChart>
