@@ -481,14 +481,52 @@ export interface RunMonteCarloDistributionOptions {
   preRetirementStartingBalance?: number;
   /** Flat nominal annual contribution during the pre-retirement leg (does not inflate, matching Phase 1's convention). Only relevant when preRetirementYears > 0. */
   preRetirementAnnualContribution?: number;
+  /** Years per resampled block (default 5) — see sampleBlockBootstrapReturns. */
+  blockLengthYears?: number;
+}
+
+const DEFAULT_BLOCK_LENGTH_YEARS = 5;
+
+/**
+ * Draws totalYears of returns via BLOCK bootstrap rather than picking each
+ * year independently: repeatedly picks a random contiguous slice of
+ * blockLengthYears REAL consecutive historical years (in their real order)
+ * and concatenates blocks until totalYears is reached (the final block may
+ * be truncated). Independent single-year resampling ignores real bull/bear
+ * market clustering entirely — verified against this project's own data
+ * that it can produce 30-year trial CAGRs (up to ~24%) far outside anything
+ * any real 30-year historical window ever produced (max ~13.6%). Block
+ * bootstrap preserves real momentum/clustering WITHIN each block, while
+ * still varying WHICH blocks (and in what order) get picked, keeping the
+ * "many possible futures" property Monte Carlo needs.
+ */
+export function sampleBlockBootstrapReturns(
+  historicalReturnPool: number[],
+  totalYears: number,
+  randomFn: () => number,
+  blockLengthYears: number = DEFAULT_BLOCK_LENGTH_YEARS,
+): number[] {
+  const poolLength = historicalReturnPool.length;
+  const effectiveBlockLength = Math.max(1, Math.min(blockLengthYears, poolLength));
+  const maxStartIndex = poolLength - effectiveBlockLength;
+
+  const returns: number[] = [];
+  while (returns.length < totalYears) {
+    const start = Math.floor(randomFn() * (maxStartIndex + 1));
+    for (let i = 0; i < effectiveBlockLength && returns.length < totalYears; i++) {
+      returns.push(historicalReturnPool[start + i]);
+    }
+  }
+  return returns;
 }
 
 /**
- * Runs many independent trials, each bootstrap-resampling annual returns
- * (with replacement) from the real historical return pool rather than
- * replaying one fixed historical sequence — captures a distribution of
- * possible outcomes instead of a single arbitrary path (project decision:
- * randomized Monte Carlo over a deterministic historical replay).
+ * Runs many independent trials, each drawing a block-bootstrapped sequence
+ * of annual returns (see sampleBlockBootstrapReturns) from the real
+ * historical return pool rather than replaying one fixed historical
+ * sequence — captures a distribution of possible outcomes instead of a
+ * single arbitrary path (project decision: randomized Monte Carlo over a
+ * deterministic historical replay).
  *
  * When preRetirementYears > 0, each trial draws ONE continuous sequence of
  * returns spanning BOTH the pre-retirement accumulation years and the
@@ -527,14 +565,17 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     preRetirementYears = 0,
     preRetirementStartingBalance = 0,
     preRetirementAnnualContribution = 0,
+    blockLengthYears = DEFAULT_BLOCK_LENGTH_YEARS,
   } = options;
 
   const results: (WithdrawalTrackResult & { preRetirementRows?: PreRetirementYearResult[] })[] = [];
 
   for (let t = 0; t < trials; t++) {
-    const drawnReturns = Array.from(
-      { length: preRetirementYears + years },
-      () => historicalReturnPool[Math.floor(randomFn() * historicalReturnPool.length)],
+    const drawnReturns = sampleBlockBootstrapReturns(
+      historicalReturnPool,
+      preRetirementYears + years,
+      randomFn,
+      blockLengthYears,
     );
 
     let trialStartingBalance = startingBalance;
