@@ -710,7 +710,15 @@ export function validateDistributionInputs(
     longTermCareAnnualCost,
     longTermCareStartAge,
     longTermCareInflationRatePct,
+    startingBalanceOverride,
   } = inputs;
+
+  if (startingBalanceOverride !== undefined && startingBalanceOverride < 0) {
+    errors.push({
+      field: 'startingBalanceOverride',
+      message: 'Starting balance override cannot be negative.',
+    });
+  }
 
   if (currentAge === undefined || Number.isNaN(currentAge) || currentAge < 0) {
     errors.push({ field: 'currentAge', message: 'Current age is required.' });

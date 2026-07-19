@@ -96,4 +96,14 @@ export interface DistributionInputs {
   longTermCareStartAge: number;
   /** Own inflation rate for Long-Term Care costs, separate from and typically higher than the general Inflation Adjustment rate — real LTC/care costs have historically outpaced general inflation. */
   longTermCareInflationRatePct: number;
+  /**
+   * Optional manual starting balance for Distribution, in today's dollars,
+   * treated as the balance AT Stop-Working Age. When greater than 0, this
+   * replaces the balance otherwise carried over from the Accumulation tab's
+   * simulated result — useful because real savings histories rarely match
+   * Accumulation's clean single-contribution-stream model (people start
+   * late, pause to buy a house, change contribution amounts, etc.). 0
+   * (the default) keeps using the Accumulation tab's carried-over balance.
+   */
+  startingBalanceOverride: number;
 }

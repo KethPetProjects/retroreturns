@@ -42,6 +42,19 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
           />
         </Field>
 
+        <Field
+          label="Starting Balance Override ($)"
+          error={fieldError(validationErrors, 'startingBalanceOverride')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            step={10000}
+            value={inputs.startingBalanceOverride}
+            onChange={(v) => update('startingBalanceOverride', v)}
+          />
+        </Field>
+
         <Field label="Annual Expense ($, net)" error={fieldError(validationErrors, 'annualExpense')}>
           <NumberField
             className="input"
@@ -239,6 +252,13 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         </Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">
+        Starting Balance Override lets you enter what you actually expect to have saved by
+        Stop-Working Age, bypassing the Accumulation tab's projection entirely — useful since real
+        savings histories rarely match Accumulation's clean single-contribution-stream model (many
+        people started saving late, paused to buy a house, or changed contribution amounts over
+        time). Leave at $0 to keep using the Accumulation tab's carried-over balance.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
         Annual Expense is the take-home amount you want to actually spend — each year's withdrawal is
         grossed up above the standard deduction so that, after tax, you net this amount (adjusted for
         inflation).

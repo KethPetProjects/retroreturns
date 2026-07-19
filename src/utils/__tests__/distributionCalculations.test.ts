@@ -717,6 +717,7 @@ describe('runDistributionComparison (integration)', () => {
         longTermCareAnnualCost: 0,
         longTermCareStartAge: 80,
         longTermCareInflationRatePct: 0.05,
+        startingBalanceOverride: 0,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -748,6 +749,7 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareAnnualCost: 0,
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
@@ -781,6 +783,7 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareAnnualCost: 0,
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
     };
     const withSS = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -820,6 +823,7 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareAnnualCost: 40000,
       longTermCareStartAge: 80, // stopWorkingAge 65 + 15 -> starts in track year 16
       longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 3_000_000,
@@ -853,6 +857,7 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareAnnualCost: 0,
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
     };
 
     const bornBefore1960 = runDistributionComparison({
@@ -895,6 +900,7 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareAnnualCost: 0,
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 8_000_000,
@@ -1091,5 +1097,41 @@ describe('validateDistributionInputs (Section 13.2)', () => {
     expect(errors.some((e) => e.field === 'longTermCareAnnualCost')).toBe(true);
     expect(errors.some((e) => e.field === 'longTermCareStartAge')).toBe(true);
     expect(errors.some((e) => e.field === 'longTermCareInflationRatePct')).toBe(true);
+  });
+
+  it('flags a negative starting balance override', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        startingBalanceOverride: -1000,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'startingBalanceOverride')).toBe(true);
+  });
+
+  it('allows a positive starting balance override', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        startingBalanceOverride: 500000,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'startingBalanceOverride')).toBe(false);
   });
 });

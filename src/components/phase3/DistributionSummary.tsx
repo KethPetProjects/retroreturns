@@ -5,6 +5,7 @@ interface DistributionSummaryProps {
   result: DistributionComparisonResult;
   stopWorkingAge: number;
   planThroughAge: number;
+  usingStartingBalanceOverride: boolean;
 }
 
 function outcomeLabel(depletedAtYear: number | null, stopWorkingAge: number, planThroughAge: number): string {
@@ -14,7 +15,12 @@ function outcomeLabel(depletedAtYear: number | null, stopWorkingAge: number, pla
   return `Depleted at age ${stopWorkingAge + depletedAtYear - 1} (year ${depletedAtYear})`;
 }
 
-export function DistributionSummary({ result, stopWorkingAge, planThroughAge }: DistributionSummaryProps) {
+export function DistributionSummary({
+  result,
+  stopWorkingAge,
+  planThroughAge,
+  usingStartingBalanceOverride,
+}: DistributionSummaryProps) {
   const { years, monteCarlo, rmdStartAge } = result;
   const startingBalance = monteCarlo.medianTrialRows[0]?.beginningBalance;
 
@@ -27,7 +33,11 @@ export function DistributionSummary({ result, stopWorkingAge, planThroughAge }: 
         <Metric
           label="Starting Balance"
           value={startingBalance !== undefined ? formatDollars(startingBalance, false) : '—'}
-          hint="Carried over from the Accumulation tab's real sequenced-return ending balance"
+          hint={
+            usingStartingBalanceOverride
+              ? 'Manually entered via Starting Balance Override, not carried over from the Accumulation tab'
+              : "Carried over from the Accumulation tab's real sequenced-return ending balance"
+          }
         />
         <Metric
           label="Monte Carlo Success Rate"

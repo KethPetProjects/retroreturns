@@ -527,6 +527,7 @@ Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which
 | Current Age | Number | 35 | User's age today |
 | Stop-Working Age | Number | 65 | The age at which contributions stop and withdrawals begin. Can fall **anywhere during Phase 1's accumulation window**, not just at its end — retiring 27 years into a 30-year accumulation run uses year 27's actual balance, not year 30's |
 | Plan Through Age | Number | 95 | Horizon the simulation runs to if funds don't deplete first |
+| Starting Balance Override ($) | Dollar amount | $0 | Optional. When > 0, replaces the balance otherwise carried over from the Accumulation tab with a manually entered figure, treated as the balance AT Stop-Working Age. See note below the table |
 | Annual Expense ($, net) | Dollar amount | $80,000 | Year-1 **take-home** spend target — each year's gross portfolio withdrawal is solved so that, after tax, the retiree nets this amount (adjusted for inflation). Replaces the original draft's "Distribution Rate (%) of balance" input |
 | Inflation Adjustment (%) | Percentage | 3% | Grows the net expense target, standard deduction, and other income streams each year |
 | Standard Deduction ($) | Dollar amount | $15,000 | Year-1 dollars, grows with inflation; the threshold above which the combined tax rate applies |
@@ -546,6 +547,8 @@ Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which
 | *(no input — always on)* | — | — | **Required Minimum Distributions** (see 13.9): start age (73/75) derived automatically from Current Age via SECURE 2.0's birth-year rule, no toggle to disable |
 
 All dollar income fields (Social Security, Other Income, Reverse Mortgage) and Long-Term Care Annual Cost are **annual**, matching Annual Expense's convention.
+
+**Starting Balance Override, and why it exists:** Accumulation models one clean, continuous contribution stream from a single chosen Starting Year — real savings histories essentially never look like that (people start saving late, pause to buy a house, change jobs/contribution amounts, etc.). Rather than trying to model every possible real-world contribution pattern, Starting Balance Override just lets the user enter what they actually expect to have saved by Stop-Working Age directly, bypassing the Accumulation tab's projection entirely for Distribution purposes. Purely an input-selection choice at the App level — `runDistributionComparison` and everything below it just receives whichever `startingBalanceActual` results, with no awareness of where it came from. 0 (the default) preserves today's existing carry-over behavior unchanged.
 
 **Validation rule:** `starting_year + (stop_working_age - current_age)` must fall within (or at most one year past) Phase 1's simulated accumulation window, so the two phases stay temporally consistent. Retiring before accumulation starts, or long enough after it ends that there's an unmodeled growth gap, is rejected with a clear message.
 
@@ -623,6 +626,7 @@ The divisor shrinks as age increases (26.5 at 73 → 12.2 at 90 → 2.0 at 120+)
 7. ✅ Reverse Mortgage bugfix: was inflating year over year like Social Security/Other Income; corrected to hold flat in nominal dollars, matching how a real reverse mortgage tenure payment works (13.6)
 8. ✅ Long-Term Care: flat extra expense with its own (higher) inflation rate, runs to Plan Through Age once started — deliberately simpler than a probabilistic or tiered-care model (13.7)
 9. ✅ Required Minimum Distributions: always modeled (no toggle), start age derived from Current Age via SECURE 2.0's birth-year rule, forced amount from the real IRS Uniform Lifetime Table (13.9)
+10. ✅ Starting Balance Override: optional manual entry of the balance at Stop-Working Age, bypassing Accumulation's carry-over — added because Accumulation's single-contribution-stream model doesn't match most real savings histories (13.2)
 
 ---
 
