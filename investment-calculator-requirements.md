@@ -550,7 +550,7 @@ All dollar income fields (Social Security, Other Income, Reverse Mortgage) and L
 
 **Starting Balance Override, and why it exists:** Accumulation models one clean, continuous contribution stream from a single chosen Starting Year — real savings histories essentially never look like that (people start saving late, pause to buy a house, change jobs/contribution amounts, etc.). Rather than trying to model every possible real-world contribution pattern, Starting Balance Override just lets the user enter what they actually expect to have saved by Stop-Working Age directly, bypassing the Accumulation tab's projection entirely for Distribution purposes. Purely an input-selection choice at the App level — `runDistributionComparison` and everything below it just receives whichever `startingBalanceActual` results, with no awareness of where it came from. 0 (the default) preserves today's existing carry-over behavior unchanged.
 
-**Validation rule:** `starting_year + (stop_working_age - current_age)` must fall within (or at most one year past) Phase 1's simulated accumulation window, so the two phases stay temporally consistent. Retiring before accumulation starts, or long enough after it ends that there's an unmodeled growth gap, is rejected with a clear message.
+**Validation rule:** `starting_year + (stop_working_age - current_age)` must fall within (or at most one year past) Phase 1's simulated accumulation window, so the two phases stay temporally consistent. Retiring before accumulation starts, or long enough after it ends that there's an unmodeled growth gap, is rejected with a clear message — **unless Starting Balance Override is in use**, in which case this check is skipped entirely. The whole point of the check is keeping Accumulation's dollar output temporally consistent with Stop-Working Age; the override replaces that dollar output, so the constraint has nothing left to protect, and Stop-Working Age can be set freely (e.g. 62 instead of the Accumulation window's implied age).
 
 ### 13.3 Withdrawal Mechanics: Fixed-Dollar, Tax-Grossed-Up, Cash Bucket
 
@@ -626,7 +626,7 @@ The divisor shrinks as age increases (26.5 at 73 → 12.2 at 90 → 2.0 at 120+)
 7. ✅ Reverse Mortgage bugfix: was inflating year over year like Social Security/Other Income; corrected to hold flat in nominal dollars, matching how a real reverse mortgage tenure payment works (13.6)
 8. ✅ Long-Term Care: flat extra expense with its own (higher) inflation rate, runs to Plan Through Age once started — deliberately simpler than a probabilistic or tiered-care model (13.7)
 9. ✅ Required Minimum Distributions: always modeled (no toggle), start age derived from Current Age via SECURE 2.0's birth-year rule, forced amount from the real IRS Uniform Lifetime Table (13.9)
-10. ✅ Starting Balance Override: optional manual entry of the balance at Stop-Working Age, bypassing Accumulation's carry-over — added because Accumulation's single-contribution-stream model doesn't match most real savings histories (13.2)
+10. ✅ Starting Balance Override: optional manual entry of the balance at Stop-Working Age, bypassing Accumulation's carry-over — added because Accumulation's single-contribution-stream model doesn't match most real savings histories (13.2). When in use, the Stop-Working-Age-vs-Accumulation-window validation is also skipped, since that check exists solely to protect the now-bypassed dollar figure — Stop-Working Age can then be set freely (e.g. 62) regardless of the Accumulation tab's Starting Year/Number of Years
 
 ---
 

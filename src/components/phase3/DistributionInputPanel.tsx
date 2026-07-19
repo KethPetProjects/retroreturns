@@ -256,7 +256,9 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         Stop-Working Age, bypassing the Accumulation tab's projection entirely — useful since real
         savings histories rarely match Accumulation's clean single-contribution-stream model (many
         people started saving late, paused to buy a house, or changed contribution amounts over
-        time). Leave at $0 to keep using the Accumulation tab's carried-over balance.
+        time). Leave at $0 to keep using the Accumulation tab's carried-over balance. Setting this
+        also frees up Stop-Working Age to be set independently of the Accumulation tab's Starting
+        Year/Number of Years window, since that dollar figure is no longer being used.
       </p>
       <p className="mt-1 text-xs text-slate-500">
         Annual Expense is the take-home amount you want to actually spend — each year's withdrawal is

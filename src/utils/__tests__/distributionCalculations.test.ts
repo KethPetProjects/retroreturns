@@ -987,6 +987,44 @@ describe('validateDistributionInputs (Section 13.2)', () => {
     expect(errors.some((e) => e.field === 'stopWorkingAge')).toBe(true);
   });
 
+  it('skips the accumulation-window check entirely when Starting Balance Override is in use', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 80, // 45 years into a 30-year window — would normally fail
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        startingBalanceOverride: 500000,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'stopWorkingAge')).toBe(false);
+  });
+
+  it('still enforces stopWorkingAge > currentAge even when Starting Balance Override is in use', () => {
+    // The override only bypasses the ACCUMULATION-WINDOW check — basic
+    // ordering sanity (can't retire before/at current age) still applies.
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 65,
+        stopWorkingAge: 65,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        startingBalanceOverride: 500000,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'stopWorkingAge')).toBe(true);
+  });
+
   it('flags stopWorkingAge <= currentAge and planThroughAge <= stopWorkingAge', () => {
     const errors = validateDistributionInputs(
       {

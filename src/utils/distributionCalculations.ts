@@ -847,7 +847,20 @@ export function validateDistributionInputs(
     });
   }
 
-  if (currentAge !== undefined && stopWorkingAge !== undefined && !Number.isNaN(currentAge) && !Number.isNaN(stopWorkingAge)) {
+  // This whole check exists to keep Accumulation's DOLLAR OUTPUT temporally
+  // consistent with when Distribution says retirement happens. Starting
+  // Balance Override replaces that dollar output entirely, so the
+  // constraint has nothing left to protect — skip it whenever the override
+  // is in use, so Stop-Working Age can be set freely.
+  const usingStartingBalanceOverride = startingBalanceOverride !== undefined && startingBalanceOverride > 0;
+
+  if (
+    !usingStartingBalanceOverride &&
+    currentAge !== undefined &&
+    stopWorkingAge !== undefined &&
+    !Number.isNaN(currentAge) &&
+    !Number.isNaN(stopWorkingAge)
+  ) {
     // Retirement can begin at any point during Phase 1's accumulation window
     // (using that year's actual balance, not just the final one), or up to
     // one year immediately after it ends (using the final balance unchanged).
