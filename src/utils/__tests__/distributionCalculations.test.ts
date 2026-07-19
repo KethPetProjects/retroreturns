@@ -757,6 +757,31 @@ describe('runMonteCarloDistribution — pre-retirement lifecycle mode', () => {
       lowContribution.medianTrialRows[0].beginningBalance,
     );
   });
+
+  it('exposes medianTrialPreRetirementRows with exact year-by-year detail, undefined when lifecycle mode is off', () => {
+    const withoutLifecycle = runMonteCarloDistribution(base);
+    expect(withoutLifecycle.medianTrialPreRetirementRows).toBeUndefined();
+
+    const result = runMonteCarloDistribution({
+      ...base,
+      preRetirementYears: 3,
+      preRetirementStartingBalance: 100000,
+      preRetirementAnnualContribution: 20000,
+    });
+    const preRows = result.medianTrialPreRetirementRows;
+    expect(preRows).toHaveLength(3);
+    expect(preRows![0]).toMatchObject({
+      year: 1,
+      beginningBalance: 100000,
+      contribution: 20000,
+      returnApplied: 0.1,
+      endingBalance: 132000,
+    });
+    expect(preRows![1].beginningBalance).toBeCloseTo(132000, 4);
+    expect(preRows![2].endingBalance).toBeCloseTo(205920, 0);
+    // The pre-retirement leg's own final balance must be exactly what fed the withdrawal phase.
+    expect(result.medianTrialRows[0].beginningBalance).toBeCloseTo(preRows![2].endingBalance, 4);
+  });
 });
 
 describe('runDistributionComparison (integration)', () => {

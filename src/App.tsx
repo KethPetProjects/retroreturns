@@ -244,6 +244,8 @@ function App() {
                     <DistributionTable
                       rows={distributionResult.monteCarlo.medianTrialRows}
                       stopWorkingAge={distributionInputs.stopWorkingAge}
+                      preRetirementRows={distributionResult.monteCarlo.medianTrialPreRetirementRows}
+                      currentAge={distributionInputs.currentAge}
                     />
                     <DistributionSummary
                       result={distributionResult}

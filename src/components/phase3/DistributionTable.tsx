@@ -1,12 +1,21 @@
-import type { WithdrawalYearResult } from '../../utils/distributionCalculations';
+import type { PreRetirementYearResult, WithdrawalYearResult } from '../../utils/distributionCalculations';
 import { formatDollars, formatPercent, formatYear } from '../../utils/formatters';
 
 interface DistributionTableProps {
   rows: WithdrawalYearResult[];
   stopWorkingAge: number;
+  /** The same median trial's pre-retirement accumulation years (Current Age -> Stop-Working Age). Only present when Current Balance (lifecycle mode) is in use. */
+  preRetirementRows?: PreRetirementYearResult[];
+  currentAge: number;
 }
 
-export function DistributionTable({ rows, stopWorkingAge }: DistributionTableProps) {
+const TOTAL_COLUMNS = 16;
+// Pre-retirement rows only populate Year/Age/Beg. Balance/S&P Return/Contribution
+// and Ending Balance; every retirement-only column in between (Gross
+// Withdrawal through Refilled?) is filled with this many "—" placeholders.
+const RETIREMENT_ONLY_COLUMNS = 10;
+
+export function DistributionTable({ rows, stopWorkingAge, preRetirementRows, currentAge }: DistributionTableProps) {
   return (
     <section className="card overflow-hidden">
       <h2 className="border-b border-navy-700 px-4 py-3 text-sm font-semibold uppercase tracking-wide text-slate-400 sm:px-6">
@@ -15,9 +24,12 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
       <p className="border-b border-navy-700 px-4 py-2 text-xs text-slate-500 sm:px-6">
         The exact real historical S&amp;P 500 annual returns randomly drawn for this one
         representative trial — not a summary or a smoothed average.
+        {preRetirementRows && preRetirementRows.length > 0 && (
+          <> Includes the pre-retirement accumulation years leading up to Stop-Working Age.</>
+        )}
       </p>
       <div className="max-h-[32rem] overflow-auto">
-        <table className="w-full min-w-[1000px] border-collapse text-sm">
+        <table className="w-full min-w-[1100px] border-collapse text-sm">
           <thead className="sticky top-0 z-10 bg-navy-800">
             <tr>
               {[
@@ -25,6 +37,7 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 'Age',
                 'Beg. Balance',
                 'S&P Return',
+                'Contribution',
                 'Gross Withdrawal',
                 'RMD?',
                 'Social Security',
@@ -47,6 +60,48 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
             </tr>
           </thead>
           <tbody>
+            {preRetirementRows?.map((row) => (
+              <tr
+                key={`pre-${row.year}`}
+                className={`bg-sky-500/5 ${row.returnApplied < 0 ? 'bg-loss-500/10' : row.returnApplied > 0 ? 'bg-gain-500/5' : ''}`}
+              >
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5">
+                  {formatYear(row.year)}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
+                  {currentAge + row.year - 1}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5">
+                  {formatDollars(row.beginningBalance)}
+                </td>
+                <td
+                  className={`whitespace-nowrap border-b border-navy-800 px-3 py-1.5 ${row.returnApplied < 0 ? 'text-loss-400' : 'text-gain-400'}`}
+                >
+                  {formatPercent(row.returnApplied)}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-sky-400">
+                  {formatDollars(row.contribution)}
+                </td>
+                {Array.from({ length: RETIREMENT_ONLY_COLUMNS }).map((_, i) => (
+                  <td key={i} className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-600">
+                    —
+                  </td>
+                ))}
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 font-medium text-slate-100">
+                  {formatDollars(row.endingBalance)}
+                </td>
+              </tr>
+            ))}
+            {preRetirementRows && preRetirementRows.length > 0 && (
+              <tr>
+                <td
+                  colSpan={TOTAL_COLUMNS}
+                  className="whitespace-nowrap border-b border-navy-600 bg-navy-800/80 px-3 py-1.5 text-center text-xs font-semibold uppercase tracking-wide text-slate-400"
+                >
+                  Retirement Begins — Age {stopWorkingAge}
+                </td>
+              </tr>
+            )}
             {rows.map((row) => (
               <tr
                 key={row.year}
@@ -55,7 +110,7 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 }
               >
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5">
-                  {formatYear(row.year)}
+                  {formatYear((preRetirementRows?.length ?? 0) + row.year)}
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
                   {stopWorkingAge + row.year - 1}
@@ -68,6 +123,7 @@ export function DistributionTable({ rows, stopWorkingAge }: DistributionTablePro
                 >
                   {formatPercent(row.returnApplied)}
                 </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-600">—</td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5">
                   {formatDollars(row.grossWithdrawal)}
                 </td>

@@ -141,6 +141,15 @@ export interface WithdrawalTrackResult {
   finalBalance: number;
 }
 
+/** One year of the pre-retirement lifecycle leg (13.11) — Current Age through Stop-Working Age. Much simpler than WithdrawalYearResult since no withdrawal, tax, or income-stream mechanics apply pre-retirement. */
+export interface PreRetirementYearResult {
+  year: number; // 1-based year of the pre-retirement leg (year 1 = Current Age)
+  beginningBalance: number;
+  contribution: number;
+  returnApplied: number;
+  endingBalance: number;
+}
+
 interface ProjectedYearPlan {
   netExpenseTarget: number;
   yearStandardDeduction: number;
@@ -438,6 +447,8 @@ export interface MonteCarloResult {
   worstDecileDepletionYear: number | null;
   /** The single trial ranked at the 50th percentile across all trials, for charting a representative path — the same trial medianDepletionYear is read from. */
   medianTrialRows: WithdrawalYearResult[];
+  /** That same median trial's pre-retirement accumulation years (Current Age -> Stop-Working Age), from the SAME continuous return sequence as medianTrialRows. Only present when Current Balance (lifecycle mode, 13.11) was used. */
+  medianTrialPreRetirementRows?: PreRetirementYearResult[];
 }
 
 export interface RunMonteCarloDistributionOptions {
@@ -518,7 +529,7 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     preRetirementAnnualContribution = 0,
   } = options;
 
-  const results: WithdrawalTrackResult[] = [];
+  const results: (WithdrawalTrackResult & { preRetirementRows?: PreRetirementYearResult[] })[] = [];
 
   for (let t = 0; t < trials; t++) {
     const drawnReturns = Array.from(
@@ -528,23 +539,33 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
 
     let trialStartingBalance = startingBalance;
     let withdrawalReturns = drawnReturns;
+    let preRetirementRows: PreRetirementYearResult[] | undefined;
 
     if (preRetirementYears > 0) {
       const accumulationReturns = drawnReturns.slice(0, preRetirementYears);
       withdrawalReturns = drawnReturns.slice(preRetirementYears);
 
+      preRetirementRows = [];
       let balance = preRetirementStartingBalance;
-      for (const r of accumulationReturns) {
+      accumulationReturns.forEach((r, i) => {
+        const beginningBalance = balance;
         // Contribution at start of year, then that year's return/fee — same
         // convention as Phase 1's accumulation engine and this file's own
         // withdrawal-phase growth formula.
         balance = (balance + preRetirementAnnualContribution) * (1 + r - feePct);
-      }
+        preRetirementRows!.push({
+          year: i + 1,
+          beginningBalance,
+          contribution: preRetirementAnnualContribution,
+          returnApplied: r,
+          endingBalance: balance,
+        });
+      });
       trialStartingBalance = balance;
     }
 
-    results.push(
-      runWithdrawalTrack({
+    results.push({
+      ...runWithdrawalTrack({
         startingBalance: trialStartingBalance,
         returns: withdrawalReturns,
         annualExpense,
@@ -565,7 +586,8 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
         rmdStartYear,
         rmdStartAge,
       }),
-    );
+      preRetirementRows,
+    });
   }
 
   const successCount = results.filter((r) => r.depletedAtYear === null).length;
@@ -602,6 +624,7 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     medianDepletionYear,
     worstDecileDepletionYear,
     medianTrialRows: medianTrial.rows,
+    medianTrialPreRetirementRows: medianTrial.preRetirementRows,
   };
 }
 
