@@ -527,7 +527,9 @@ Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which
 | Current Age | Number | 35 | User's age today |
 | Stop-Working Age | Number | 65 | The age at which contributions stop and withdrawals begin. Can fall **anywhere during Phase 1's accumulation window**, not just at its end — retiring 27 years into a 30-year accumulation run uses year 27's actual balance, not year 30's |
 | Plan Through Age | Number | 95 | Horizon the simulation runs to if funds don't deplete first |
-| Starting Balance Override ($) | Dollar amount | $0 | Optional. When > 0, replaces the balance otherwise carried over from the Accumulation tab with a manually entered figure, treated as the balance AT Stop-Working Age. See note below the table |
+| Current Balance ($, today) | Dollar amount | $0 | Optional, highest priority. See 13.11 — projects this forward to Stop-Working Age itself, correlated with the withdrawal phase, rather than requiring a pre-computed retirement-age figure |
+| Pre-Retirement Annual Contribution ($) | Dollar amount | $10,000 | Flat nominal $/year until Stop-Working Age (does not inflate). Only relevant when Current Balance > 0 |
+| Starting Balance Override ($) | Dollar amount | $0 | Optional, second priority (used only if Current Balance is $0). Replaces the balance otherwise carried over from the Accumulation tab with a manually entered figure, treated as the balance AT Stop-Working Age. See note below the table |
 | Annual Expense ($, net) | Dollar amount | $80,000 | Year-1 **take-home** spend target — each year's gross portfolio withdrawal is solved so that, after tax, the retiree nets this amount (adjusted for inflation). Replaces the original draft's "Distribution Rate (%) of balance" input |
 | Inflation Adjustment (%) | Percentage | 3% | Grows the net expense target, standard deduction, and other income streams each year |
 | Standard Deduction ($) | Dollar amount | $15,000 | Year-1 dollars, grows with inflation; the threshold above which the combined tax rate applies |
@@ -548,9 +550,14 @@ Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which
 
 All dollar income fields (Social Security, Other Income, Reverse Mortgage) and Long-Term Care Annual Cost are **annual**, matching Annual Expense's convention.
 
-**Starting Balance Override, and why it exists:** Accumulation models one clean, continuous contribution stream from a single chosen Starting Year — real savings histories essentially never look like that (people start saving late, pause to buy a house, change jobs/contribution amounts, etc.). Rather than trying to model every possible real-world contribution pattern, Starting Balance Override just lets the user enter what they actually expect to have saved by Stop-Working Age directly, bypassing the Accumulation tab's projection entirely for Distribution purposes. Purely an input-selection choice at the App level — `runDistributionComparison` and everything below it just receives whichever `startingBalanceActual` results, with no awareness of where it came from. 0 (the default) preserves today's existing carry-over behavior unchanged.
+**Three ways to set the starting balance, in priority order:** Accumulation models one clean, continuous contribution stream from a single chosen Starting Year — real savings histories essentially never look like that (people start saving late, pause to buy a house, change jobs/contribution amounts, etc.). Rather than trying to model every possible real-world contribution pattern, Distribution offers three ways to arrive at a starting balance:
+1. **Current Balance + Pre-Retirement Annual Contribution** (highest priority) — see 13.11. Projects forward from what the user actually has today, correlated with the withdrawal phase.
+2. **Starting Balance Override** (used only if Current Balance is $0) — a manually entered figure, for users who already have a retirement-age estimate from elsewhere.
+3. **Accumulation tab carry-over** (the fallback) — today's original default behavior.
 
-**Validation rule:** `starting_year + (stop_working_age - current_age)` must fall within (or at most one year past) Phase 1's simulated accumulation window, so the two phases stay temporally consistent. Retiring before accumulation starts, or long enough after it ends that there's an unmodeled growth gap, is rejected with a clear message — **unless Starting Balance Override is in use**, in which case this check is skipped entirely. The whole point of the check is keeping Accumulation's dollar output temporally consistent with Stop-Working Age; the override replaces that dollar output, so the constraint has nothing left to protect, and Stop-Working Age can be set freely (e.g. 62 instead of the Accumulation window's implied age).
+Purely an input-selection choice at the App/`runDistributionComparison` level — `runWithdrawalTrack` and everything below it has no awareness of which of the three determined its starting balance.
+
+**Validation rule:** `starting_year + (stop_working_age - current_age)` must fall within (or at most one year past) Phase 1's simulated accumulation window, so the two phases stay temporally consistent. Retiring before accumulation starts, or long enough after it ends that there's an unmodeled growth gap, is rejected with a clear message — **unless Current Balance or Starting Balance Override is in use**, in which case this check is skipped entirely. The whole point of the check is keeping Accumulation's dollar output temporally consistent with Stop-Working Age; both alternatives replace that dollar output, so the constraint has nothing left to protect, and Stop-Working Age can be set freely (e.g. 62 instead of the Accumulation window's implied age).
 
 ### 13.3 Withdrawal Mechanics: Fixed-Dollar, Tax-Grossed-Up, Cash Bucket
 
@@ -615,7 +622,19 @@ The divisor shrinks as age increases (26.5 at 73 → 12.2 at 90 → 2.0 at 120+)
 
 **Deliberately out of scope:** the excess amount forced out beyond what's needed to cover spending isn't tracked further (reinvested elsewhere, held as cash, etc.) — it simply leaves the modeled portfolio, which is the conservative and honest choice for a tool answering "how long will *this* portfolio last." No account-type split (Traditional/Roth/taxable) and no toggle to disable RMDs — both considered and rejected as unnecessary complexity for the current scope.
 
-### 13.10 Resolved Decisions Log
+### 13.11 Pre-Retirement Lifecycle Projection (Current Balance)
+
+**Motivation:** even Starting Balance Override requires the user to already know (or separately estimate) their balance AT retirement — which most people don't. What people actually know is what they have saved *today*. This section projects that forward automatically instead of requiring the user to have already done the math.
+
+**Design (confirmed over a simpler alternative):** each Monte Carlo trial draws ONE continuous sequence of real historical annual returns spanning BOTH the pre-retirement years (Current Age → Stop-Working Age) and the withdrawal years (Stop-Working Age → Plan Through Age). The first segment grows Current Balance with Pre-Retirement Annual Contribution (flat nominal, contribution-then-return-then-fee each year — identical convention to Phase 1's accumulation engine) into that trial's own balance at retirement; the second segment hands that balance to the existing withdrawal engine (`runWithdrawalTrack`) for the rest of the same trial's draw.
+
+This deliberately correlates pre- and post-retirement market conditions within a trial — a rough decade right before retirement also shapes what that same trial's withdrawal phase looks like — rather than reducing "balance at retirement" to a single fixed, uncertainty-free number. A simpler alternative (run a separate accumulation projection to get one typical/median balance, then feed that single number into the existing withdrawal Monte Carlo, exactly like Starting Balance Override) was considered and rejected: it's less code, but discards the correlation in exactly the scenario that matters most — a bad market sequence right before retirement isn't specially reflected in what happens after.
+
+**Implementation shape:** `runMonteCarloDistribution` gained `preRetirementYears` / `preRetirementStartingBalance` / `preRetirementAnnualContribution` (all optional, default disables — 0 pre-retirement years means `startingBalance` is used directly, exactly as before, so this is fully backward compatible). `runDistributionComparison` derives `preRetirementYears = Stop-Working Age − Current Age` and activates this whenever `currentBalance > 0`, at which point it ignores whatever `startingBalanceActual` was passed in — that value only matters as the fallback when lifecycle mode is off (13.2). The accumulation-phase years never appear in `medianTrialRows`/the year-by-year table — those still cover only the withdrawal horizon.
+
+**Side effect worth noting:** the "Starting Balance" summary metric, when lifecycle mode is active, now reflects that specific trial's own randomly-grown balance rather than a fixed number — it visibly varies as inputs/seed change, which is more honest than presenting a single deterministic figure.
+
+### 13.12 Resolved Decisions Log
 
 1. ✅ Distribution basis: fixed-dollar, inflation-adjusted, tax-grossed-up net spend target (13.3), not a %-of-balance rate
 2. ✅ Volatility modeling: Monte Carlo bootstrap over the real historical return pool (13.4), not a smooth Average-Rate scenario or a single replayed historical sequence — both considered, and the Average-Rate scenario was built then removed as low-value
@@ -627,6 +646,7 @@ The divisor shrinks as age increases (26.5 at 73 → 12.2 at 90 → 2.0 at 120+)
 8. ✅ Long-Term Care: flat extra expense with its own (higher) inflation rate, runs to Plan Through Age once started — deliberately simpler than a probabilistic or tiered-care model (13.7)
 9. ✅ Required Minimum Distributions: always modeled (no toggle), start age derived from Current Age via SECURE 2.0's birth-year rule, forced amount from the real IRS Uniform Lifetime Table (13.9)
 10. ✅ Starting Balance Override: optional manual entry of the balance at Stop-Working Age, bypassing Accumulation's carry-over — added because Accumulation's single-contribution-stream model doesn't match most real savings histories (13.2). When in use, the Stop-Working-Age-vs-Accumulation-window validation is also skipped, since that check exists solely to protect the now-bypassed dollar figure — Stop-Working Age can then be set freely (e.g. 62) regardless of the Accumulation tab's Starting Year/Number of Years
+11. ✅ Pre-Retirement Lifecycle Projection: Current Balance + Pre-Retirement Annual Contribution, projected forward using ONE continuous per-trial return sequence spanning both accumulation and withdrawal years — correlates pre- and post-retirement market conditions, chosen over a simpler independent-projection alternative that would've discarded that correlation (13.11). Takes priority over both Starting Balance Override and Accumulation's carry-over, and also bypasses the accumulation-window validation
 
 ---
 

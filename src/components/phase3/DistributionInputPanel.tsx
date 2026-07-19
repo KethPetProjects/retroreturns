@@ -42,6 +42,29 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
           />
         </Field>
 
+        <Field label="Current Balance ($, today)" error={fieldError(validationErrors, 'currentBalance')}>
+          <NumberField
+            className="input"
+            min={0}
+            step={10000}
+            value={inputs.currentBalance}
+            onChange={(v) => update('currentBalance', v)}
+          />
+        </Field>
+
+        <Field
+          label="Pre-Retirement Annual Contribution ($)"
+          error={fieldError(validationErrors, 'preRetirementAnnualContribution')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            step={1000}
+            value={inputs.preRetirementAnnualContribution}
+            onChange={(v) => update('preRetirementAnnualContribution', v)}
+          />
+        </Field>
+
         <Field
           label="Starting Balance Override ($)"
           error={fieldError(validationErrors, 'startingBalanceOverride')}
@@ -252,13 +275,19 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         </Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">
-        Starting Balance Override lets you enter what you actually expect to have saved by
-        Stop-Working Age, bypassing the Accumulation tab's projection entirely — useful since real
-        savings histories rarely match Accumulation's clean single-contribution-stream model (many
-        people started saving late, paused to buy a house, or changed contribution amounts over
-        time). Leave at $0 to keep using the Accumulation tab's carried-over balance. Setting this
-        also frees up Stop-Working Age to be set independently of the Accumulation tab's Starting
-        Year/Number of Years window, since that dollar figure is no longer being used.
+        Three ways to set Distribution's starting balance, in priority order. <strong>Current
+        Balance</strong> (highest priority): enter what you actually have saved today, plus what
+        you'll keep contributing until Stop-Working Age, and the simulation projects it forward
+        itself — using the same randomized market sequence as the withdrawal phase, so a rough
+        decade right before you retire also shapes what happens after. <strong>Starting Balance
+        Override</strong> (used only if Current Balance is $0): enter a known figure directly if
+        you already have a retirement-age estimate from elsewhere. Otherwise, the balance carries
+        over from the Accumulation tab automatically. All three exist because Accumulation's clean
+        single-contribution-stream model rarely matches how people actually saved (started late,
+        paused to buy a house, changed contribution amounts over time). Setting either Current
+        Balance or Starting Balance Override also frees up Stop-Working Age to be set independently
+        of the Accumulation tab's Starting Year/Number of Years window, since that dollar figure is
+        no longer being used.
       </p>
       <p className="mt-1 text-xs text-slate-500">
         Annual Expense is the take-home amount you want to actually spend — each year's withdrawal is

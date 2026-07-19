@@ -1,11 +1,24 @@
 import type { DistributionComparisonResult } from '../../utils/distributionCalculations';
 import { formatDollars, formatPercent } from '../../utils/formatters';
 
+type StartingBalanceSource = 'lifecycle' | 'override' | 'accumulation';
+
 interface DistributionSummaryProps {
   result: DistributionComparisonResult;
   stopWorkingAge: number;
   planThroughAge: number;
-  usingStartingBalanceOverride: boolean;
+  startingBalanceSource: StartingBalanceSource;
+}
+
+function startingBalanceHint(source: StartingBalanceSource): string {
+  switch (source) {
+    case 'lifecycle':
+      return "Projected from Current Balance + Annual Contribution using this trial's own market sequence — not a fixed number, varies by trial";
+    case 'override':
+      return 'Manually entered via Starting Balance Override, not carried over from the Accumulation tab';
+    case 'accumulation':
+      return "Carried over from the Accumulation tab's real sequenced-return ending balance";
+  }
 }
 
 function outcomeLabel(depletedAtYear: number | null, stopWorkingAge: number, planThroughAge: number): string {
@@ -19,7 +32,7 @@ export function DistributionSummary({
   result,
   stopWorkingAge,
   planThroughAge,
-  usingStartingBalanceOverride,
+  startingBalanceSource,
 }: DistributionSummaryProps) {
   const { years, monteCarlo, rmdStartAge } = result;
   const startingBalance = monteCarlo.medianTrialRows[0]?.beginningBalance;
@@ -33,11 +46,7 @@ export function DistributionSummary({
         <Metric
           label="Starting Balance"
           value={startingBalance !== undefined ? formatDollars(startingBalance, false) : '—'}
-          hint={
-            usingStartingBalanceOverride
-              ? 'Manually entered via Starting Balance Override, not carried over from the Accumulation tab'
-              : "Carried over from the Accumulation tab's real sequenced-return ending balance"
-          }
+          hint={startingBalanceHint(startingBalanceSource)}
         />
         <Metric
           label="Monte Carlo Success Rate"

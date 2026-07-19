@@ -106,4 +106,17 @@ export interface DistributionInputs {
    * (the default) keeps using the Accumulation tab's carried-over balance.
    */
   startingBalanceOverride: number;
+  /**
+   * What you actually have TODAY (401k/IRA balance), in today's dollars —
+   * NOT projected. When greater than 0, Distribution projects this forward
+   * to Stop-Working Age itself, using the SAME per-trial randomized market
+   * sequence as the withdrawal phase (correlating pre- and post-retirement
+   * conditions rather than treating "balance at retirement" as one fixed
+   * number). Takes priority over both Starting Balance Override and the
+   * Accumulation tab's carried-over balance. 0 (the default) disables this
+   * entirely.
+   */
+  currentBalance: number;
+  /** Flat nominal annual contribution from Current Age until Stop-Working Age (does not inflate, matching Phase 1's convention). Only relevant when currentBalance > 0. */
+  preRetirementAnnualContribution: number;
 }

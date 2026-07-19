@@ -685,6 +685,80 @@ describe('runMonteCarloDistribution', () => {
   });
 });
 
+describe('runMonteCarloDistribution — pre-retirement lifecycle mode', () => {
+  function seededRandom(seed: number) {
+    let state = seed;
+    return () => {
+      state = (state * 1103515245 + 12345) % 2147483648;
+      return state / 2147483648;
+    };
+  }
+
+  const base = {
+    startingBalance: 999999, // deliberately distinct from any lifecycle-computed value, so we can tell if it leaked through
+    historicalReturnPool: [0.1], // single value -> every drawn return is 0.1, making growth fully deterministic
+    years: 5,
+    annualExpense: 40000,
+    inflationRatePct: 0.03,
+    standardDeduction: 15000,
+    taxRatePct: 0.15,
+    feePct: 0,
+    trials: 10,
+    randomFn: seededRandom(1),
+  };
+
+  it('is a strict special case: preRetirementYears 0/undefined behaves identically to passing startingBalance directly', () => {
+    const withoutLifecycle = runMonteCarloDistribution(base);
+    const explicitlyZero = runMonteCarloDistribution({ ...base, preRetirementYears: 0 });
+    expect(explicitlyZero.medianTrialRows[0].beginningBalance).toBeCloseTo(
+      withoutLifecycle.medianTrialRows[0].beginningBalance,
+      6,
+    );
+  });
+
+  it('grows preRetirementStartingBalance + contributions through the pre-retirement leg using the deterministic pool', () => {
+    const result = runMonteCarloDistribution({
+      ...base,
+      preRetirementYears: 3,
+      preRetirementStartingBalance: 100000,
+      preRetirementAnnualContribution: 20000,
+    });
+    // Hand-computed: (100000+20000)*1.1 = 132000 -> (132000+20000)*1.1 = 167200 -> (167200+20000)*1.1 = 205920
+    const expectedBalanceAtRetirement = 205920;
+    expect(result.medianTrialRows[0].beginningBalance).toBeCloseTo(expectedBalanceAtRetirement, 0);
+    // The passed-in startingBalance (999999) must NOT leak through when lifecycle mode is active.
+    expect(result.medianTrialRows[0].beginningBalance).not.toBeCloseTo(999999, 0);
+  });
+
+  it('produces medianTrialRows covering only the withdrawal years, not the pre-retirement years', () => {
+    const result = runMonteCarloDistribution({
+      ...base,
+      preRetirementYears: 10,
+      preRetirementStartingBalance: 100000,
+      preRetirementAnnualContribution: 20000,
+    });
+    expect(result.medianTrialRows.length).toBeLessThanOrEqual(base.years);
+  });
+
+  it('a larger pre-retirement contribution produces a larger balance at retirement', () => {
+    const lowContribution = runMonteCarloDistribution({
+      ...base,
+      preRetirementYears: 5,
+      preRetirementStartingBalance: 100000,
+      preRetirementAnnualContribution: 5000,
+    });
+    const highContribution = runMonteCarloDistribution({
+      ...base,
+      preRetirementYears: 5,
+      preRetirementStartingBalance: 100000,
+      preRetirementAnnualContribution: 30000,
+    });
+    expect(highContribution.medianTrialRows[0].beginningBalance).toBeGreaterThan(
+      lowContribution.medianTrialRows[0].beginningBalance,
+    );
+  });
+});
+
 describe('runDistributionComparison (integration)', () => {
   function seededRandom(seed: number) {
     let state = seed;
@@ -718,6 +792,8 @@ describe('runDistributionComparison (integration)', () => {
         longTermCareStartAge: 80,
         longTermCareInflationRatePct: 0.05,
         startingBalanceOverride: 0,
+        currentBalance: 0,
+        preRetirementAnnualContribution: 0,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -750,6 +826,8 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
       startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
@@ -784,6 +862,8 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
       startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
     };
     const withSS = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -824,6 +904,8 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareStartAge: 80, // stopWorkingAge 65 + 15 -> starts in track year 16
       longTermCareInflationRatePct: 0.05,
       startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 3_000_000,
@@ -858,6 +940,8 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
       startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
     };
 
     const bornBefore1960 = runDistributionComparison({
@@ -901,6 +985,8 @@ describe('runDistributionComparison (integration)', () => {
       longTermCareStartAge: 80,
       longTermCareInflationRatePct: 0.05,
       startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 8_000_000,
@@ -911,6 +997,81 @@ describe('runDistributionComparison (integration)', () => {
     });
     expect(result.rmdStartAge).toBe(73);
     expect(result.monteCarlo.medianTrialRows.some((r) => r.rmdApplied)).toBe(true);
+  });
+
+  it('activates lifecycle mode when currentBalance > 0, deriving preRetirementYears from Stop-Working Age - Current Age', () => {
+    const distributionInputs = {
+      currentAge: 45,
+      stopWorkingAge: 65, // 20 years of pre-retirement accumulation
+      planThroughAge: 90,
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 65,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
+      currentBalance: 150000,
+      preRetirementAnnualContribution: 15000,
+    };
+    // A trivially small startingBalanceActual would fail almost every trial
+    // if it were actually used — proves lifecycle mode ignored it entirely
+    // and instead grew currentBalance + contributions over 20 years.
+    const result = runDistributionComparison({
+      startingBalanceActual: 1,
+      distributionInputs,
+      monteCarloTrials: 100,
+      randomFn: seededRandom(11),
+    });
+    expect(result.monteCarlo.medianTrialRows[0].beginningBalance).toBeGreaterThan(150000);
+    expect(result.monteCarlo.successRatePct).toBeGreaterThan(0);
+  });
+
+  it('lets currentBalance take priority over startingBalanceOverride when both are set', () => {
+    const distributionInputs = {
+      currentAge: 60,
+      stopWorkingAge: 65,
+      planThroughAge: 80,
+      annualExpense: 40000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 65,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 5_000_000, // would dominate if it were used
+      currentBalance: 100000,
+      preRetirementAnnualContribution: 10000,
+    };
+    const result = runDistributionComparison({
+      startingBalanceActual: 5_000_000, // matches the override, to isolate which one actually won
+      distributionInputs,
+      monteCarloTrials: 50,
+      randomFn: seededRandom(12),
+    });
+    // 5 years of growing ~100K + 10K/year could not plausibly reach anywhere
+    // near 5,000,000 — confirms currentBalance (lifecycle), not the override
+    // or startingBalanceActual, determined the outcome.
+    expect(result.monteCarlo.medianTrialRows[0].beginningBalance).toBeLessThan(1_000_000);
   });
 });
 
@@ -1171,5 +1332,43 @@ describe('validateDistributionInputs (Section 13.2)', () => {
       phase1,
     );
     expect(errors.some((e) => e.field === 'startingBalanceOverride')).toBe(false);
+  });
+
+  it('flags a negative current balance or negative pre-retirement contribution', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        currentBalance: -1000,
+        preRetirementAnnualContribution: -500,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'currentBalance')).toBe(true);
+    expect(errors.some((e) => e.field === 'preRetirementAnnualContribution')).toBe(true);
+  });
+
+  it('skips the accumulation-window check when currentBalance (lifecycle mode) is in use, same as Starting Balance Override', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 80, // 45 years into a 30-year window — would normally fail
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        currentBalance: 100000,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'stopWorkingAge')).toBe(false);
   });
 });

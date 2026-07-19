@@ -464,6 +464,12 @@ export interface RunMonteCarloDistributionOptions {
   longTermCareInflationRatePct?: number;
   rmdStartYear?: number;
   rmdStartAge?: number;
+  /** Years of pre-retirement accumulation to simulate before the withdrawal phase, drawing from the SAME per-trial randomized return sequence — correlates pre- and post-retirement market conditions instead of treating "balance at retirement" as a single fixed number. 0 or undefined (the default) disables this entirely; startingBalance is then used directly, exactly as before. */
+  preRetirementYears?: number;
+  /** What you actually have TODAY, used as the pre-retirement leg's starting point. Only relevant when preRetirementYears > 0. */
+  preRetirementStartingBalance?: number;
+  /** Flat nominal annual contribution during the pre-retirement leg (does not inflate, matching Phase 1's convention). Only relevant when preRetirementYears > 0. */
+  preRetirementAnnualContribution?: number;
 }
 
 /**
@@ -472,6 +478,16 @@ export interface RunMonteCarloDistributionOptions {
  * replaying one fixed historical sequence — captures a distribution of
  * possible outcomes instead of a single arbitrary path (project decision:
  * randomized Monte Carlo over a deterministic historical replay).
+ *
+ * When preRetirementYears > 0, each trial draws ONE continuous sequence of
+ * returns spanning BOTH the pre-retirement accumulation years and the
+ * withdrawal years, and grows preRetirementStartingBalance + contributions
+ * through the first segment before handing the result to runWithdrawalTrack
+ * as that same trial's startingBalance for the remaining segment. This
+ * deliberately correlates pre- and post-retirement market conditions within
+ * a trial (a rough decade right before retirement also shapes what that
+ * same trial's withdrawal phase looks like) rather than treating "balance
+ * at retirement" as a single fixed, uncertainty-free number.
  */
 export function runMonteCarloDistribution(options: RunMonteCarloDistributionOptions): MonteCarloResult {
   const {
@@ -497,19 +513,40 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     longTermCareInflationRatePct = 0,
     rmdStartYear,
     rmdStartAge,
+    preRetirementYears = 0,
+    preRetirementStartingBalance = 0,
+    preRetirementAnnualContribution = 0,
   } = options;
 
   const results: WithdrawalTrackResult[] = [];
 
   for (let t = 0; t < trials; t++) {
-    const returns = Array.from(
-      { length: years },
+    const drawnReturns = Array.from(
+      { length: preRetirementYears + years },
       () => historicalReturnPool[Math.floor(randomFn() * historicalReturnPool.length)],
     );
+
+    let trialStartingBalance = startingBalance;
+    let withdrawalReturns = drawnReturns;
+
+    if (preRetirementYears > 0) {
+      const accumulationReturns = drawnReturns.slice(0, preRetirementYears);
+      withdrawalReturns = drawnReturns.slice(preRetirementYears);
+
+      let balance = preRetirementStartingBalance;
+      for (const r of accumulationReturns) {
+        // Contribution at start of year, then that year's return/fee — same
+        // convention as Phase 1's accumulation engine and this file's own
+        // withdrawal-phase growth formula.
+        balance = (balance + preRetirementAnnualContribution) * (1 + r - feePct);
+      }
+      trialStartingBalance = balance;
+    }
+
     results.push(
       runWithdrawalTrack({
-        startingBalance,
-        returns,
+        startingBalance: trialStartingBalance,
+        returns: withdrawalReturns,
         annualExpense,
         inflationRatePct,
         standardDeduction,
@@ -627,8 +664,16 @@ export function runDistributionComparison(
     longTermCareAnnualCost,
     longTermCareStartAge,
     longTermCareInflationRatePct,
+    currentBalance,
+    preRetirementAnnualContribution,
   } = distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
+  // currentBalance > 0 activates lifecycle mode (13.11) and takes priority
+  // over whatever startingBalanceActual the caller passed in — that value
+  // was either Starting Balance Override or the Accumulation tab's
+  // carried-over balance, both of which represent a single fixed number at
+  // retirement, superseded here by a per-trial projection from today.
+  const preRetirementYears = currentBalance > 0 ? Math.max(0, stopWorkingAge - currentAge) : 0;
   const combinedTaxRatePct = federalTaxRatePct + stateTaxRatePct;
   // Social Security's own claiming age is independent of Stop-Working Age —
   // it may start before, at, or (more commonly) after retirement begins.
@@ -670,6 +715,9 @@ export function runDistributionComparison(
     longTermCareInflationRatePct,
     rmdStartYear,
     rmdStartAge,
+    preRetirementYears,
+    preRetirementStartingBalance: currentBalance,
+    preRetirementAnnualContribution,
   });
 
   return { years, monteCarlo, rmdStartAge };
@@ -711,12 +759,25 @@ export function validateDistributionInputs(
     longTermCareStartAge,
     longTermCareInflationRatePct,
     startingBalanceOverride,
+    currentBalance,
+    preRetirementAnnualContribution,
   } = inputs;
 
   if (startingBalanceOverride !== undefined && startingBalanceOverride < 0) {
     errors.push({
       field: 'startingBalanceOverride',
       message: 'Starting balance override cannot be negative.',
+    });
+  }
+
+  if (currentBalance !== undefined && currentBalance < 0) {
+    errors.push({ field: 'currentBalance', message: 'Current balance cannot be negative.' });
+  }
+
+  if (preRetirementAnnualContribution !== undefined && preRetirementAnnualContribution < 0) {
+    errors.push({
+      field: 'preRetirementAnnualContribution',
+      message: 'Pre-retirement annual contribution cannot be negative.',
     });
   }
 
@@ -849,13 +910,15 @@ export function validateDistributionInputs(
 
   // This whole check exists to keep Accumulation's DOLLAR OUTPUT temporally
   // consistent with when Distribution says retirement happens. Starting
-  // Balance Override replaces that dollar output entirely, so the
-  // constraint has nothing left to protect — skip it whenever the override
-  // is in use, so Stop-Working Age can be set freely.
-  const usingStartingBalanceOverride = startingBalanceOverride !== undefined && startingBalanceOverride > 0;
+  // Balance Override and Current Balance (lifecycle mode) each replace that
+  // dollar output entirely, so the constraint has nothing left to protect —
+  // skip it whenever either is in use, so Stop-Working Age can be set freely.
+  const bypassesAccumulationWindow =
+    (startingBalanceOverride !== undefined && startingBalanceOverride > 0) ||
+    (currentBalance !== undefined && currentBalance > 0);
 
   if (
-    !usingStartingBalanceOverride &&
+    !bypassesAccumulationWindow &&
     currentAge !== undefined &&
     stopWorkingAge !== undefined &&
     !Number.isNaN(currentAge) &&

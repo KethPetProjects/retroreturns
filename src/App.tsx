@@ -57,6 +57,8 @@ const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
   longTermCareStartAge: 80,
   longTermCareInflationRatePct: 0.05,
   startingBalanceOverride: 0,
+  currentBalance: 0,
+  preRetirementAnnualContribution: 10000,
 };
 
 function App() {
@@ -92,13 +94,25 @@ function App() {
   // which rarely matches how people actually saved (started late, paused to
   // buy a house, changed contribution amounts, etc.) — so this lets the user
   // just enter what they actually expect to have at Stop-Working Age instead.
+  //
+  // currentBalance (lifecycle mode) takes priority over BOTH of the above —
+  // resolved entirely inside runDistributionComparison, which ignores
+  // whatever startingBalanceActual ends up being here whenever it's active.
+  // We still compute startingBalanceActual unconditionally below since it's
+  // the fallback used whenever lifecycle mode is off.
   const yearsIntoAccumulation = distributionInputs.stopWorkingAge - distributionInputs.currentAge;
+  const usingCurrentBalanceProjection = distributionInputs.currentBalance > 0;
   const usingStartingBalanceOverride = distributionInputs.startingBalanceOverride > 0;
   const startingBalanceActual = usingStartingBalanceOverride
     ? distributionInputs.startingBalanceOverride
     : result
       ? (getActualBalanceAtRetirement(result.rows, yearsIntoAccumulation) ?? 0)
       : 0;
+  const startingBalanceSource: 'lifecycle' | 'override' | 'accumulation' = usingCurrentBalanceProjection
+    ? 'lifecycle'
+    : usingStartingBalanceOverride
+      ? 'override'
+      : 'accumulation';
   const { result: distributionResult, validationErrors: distributionValidationErrors } = useDistribution({
     distributionInputs,
     startingBalanceActual,
@@ -198,8 +212,9 @@ function App() {
             <p className="-mt-4 text-xs text-slate-500">
               Starting balances carry over automatically from the Accumulation tab's ending
               balances (pre-tax) — switch to that tab to change the accumulation assumptions. Or
-              set Starting Balance Override below to enter what you actually expect to have at
-              Stop-Working Age instead, bypassing the Accumulation tab's projection entirely.
+              set Current Balance below to project forward from what you actually have today, or
+              Starting Balance Override to enter a known figure directly — either bypasses the
+              Accumulation tab's projection entirely (Current Balance takes priority if both are set).
             </p>
 
             {!result && (
@@ -234,7 +249,7 @@ function App() {
                       result={distributionResult}
                       stopWorkingAge={distributionInputs.stopWorkingAge}
                       planThroughAge={distributionInputs.planThroughAge}
-                      usingStartingBalanceOverride={usingStartingBalanceOverride}
+                      startingBalanceSource={startingBalanceSource}
                     />
                   </>
                 )}
