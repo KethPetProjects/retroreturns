@@ -909,6 +909,7 @@ describe('runDistributionComparison (integration)', () => {
         currentBalance: 0,
         preRetirementAnnualContribution: 0,
         historicalDataStartYear: SP500_DATA_MIN_YEAR,
+        blockLengthYears: 7,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -944,6 +945,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
@@ -981,6 +983,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
     };
     const withSS = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -1024,6 +1027,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 3_000_000,
@@ -1064,6 +1068,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
     };
 
     const bornBefore1960 = runDistributionComparison({
@@ -1110,6 +1115,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 8_000_000,
@@ -1147,6 +1153,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 150000,
       preRetirementAnnualContribution: 15000,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
     };
     // A trivially small startingBalanceActual would fail almost every trial
     // if it were actually used — proves lifecycle mode ignored it entirely
@@ -1186,6 +1193,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 100000,
       preRetirementAnnualContribution: 10000,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 5_000_000, // matches the override, to isolate which one actually won
@@ -1224,6 +1232,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: 1960,
+      blockLengthYears: 7,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -1260,6 +1269,7 @@ describe('runDistributionComparison (integration)', () => {
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR - 50,
+      blockLengthYears: 7,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -1268,6 +1278,45 @@ describe('runDistributionComparison (integration)', () => {
       randomFn: seededRandom(16),
     });
     expect(result.historicalDataStartYear).toBe(SP500_DATA_MIN_YEAR);
+  });
+
+  it('threads a custom blockLengthYears through to the underlying block bootstrap', () => {
+    const distributionInputs = {
+      currentAge: 40,
+      stopWorkingAge: 65,
+      planThroughAge: 95,
+      annualExpense: 80000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 67,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 10,
+    };
+    // Just a smoke test that a non-default block length doesn't error and
+    // still produces a valid result — the block-length mechanism itself is
+    // covered in depth by sampleBlockBootstrapReturns's own tests.
+    const result = runDistributionComparison({
+      startingBalanceActual: 1_500_000,
+      distributionInputs,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(17),
+    });
+    expect(result.monteCarlo.medianTrialRows.length).toBeGreaterThan(0);
   });
 });
 
@@ -1620,5 +1669,71 @@ describe('validateDistributionInputs (Section 13.2)', () => {
       phase1,
     );
     expect(errors.some((e) => e.field === 'historicalDataStartYear')).toBe(false);
+  });
+
+  it('flags a blockLengthYears outside 1-20', () => {
+    const tooLow = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        blockLengthYears: 0,
+      },
+      phase1,
+    );
+    const tooHigh = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        blockLengthYears: 21,
+      },
+      phase1,
+    );
+    expect(tooLow.some((e) => e.field === 'blockLengthYears')).toBe(true);
+    expect(tooHigh.some((e) => e.field === 'blockLengthYears')).toBe(true);
+  });
+
+  it('allows a reasonable blockLengthYears like 7 or 10', () => {
+    const errors7 = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        blockLengthYears: 7,
+      },
+      phase1,
+    );
+    const errors10 = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        blockLengthYears: 10,
+      },
+      phase1,
+    );
+    expect(errors7.some((e) => e.field === 'blockLengthYears')).toBe(false);
+    expect(errors10.some((e) => e.field === 'blockLengthYears')).toBe(false);
   });
 });

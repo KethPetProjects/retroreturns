@@ -128,4 +128,14 @@ export interface DistributionInputs {
    * themselves. Defaults to the dataset's earliest year (no restriction).
    */
   historicalDataStartYear: number;
+  /**
+   * Years per resampled block in the Monte Carlo block bootstrap (13.4) —
+   * instead of picking each year independently, the simulation repeatedly
+   * picks a random contiguous slice of this many REAL consecutive
+   * historical years (in their real order). Larger values preserve more of
+   * a real bull/bear cycle intact but leave fewer distinct starting points
+   * to draw from (less trial-to-trial variety); smaller values do the
+   * opposite. Defaults to 7 years.
+   */
+  blockLengthYears: number;
 }

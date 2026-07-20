@@ -61,6 +61,7 @@ export function useDistribution(args: UseDistributionArgs): UseDistributionResul
     args.distributionInputs.currentBalance,
     args.distributionInputs.preRetirementAnnualContribution,
     args.distributionInputs.historicalDataStartYear,
+    args.distributionInputs.blockLengthYears,
     args.startingBalanceActual,
     args.phase1.startingYear,
     args.phase1.numberOfYears,

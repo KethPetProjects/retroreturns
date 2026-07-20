@@ -61,6 +61,7 @@ const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
   currentBalance: 0,
   preRetirementAnnualContribution: 10000,
   historicalDataStartYear: SP500_DATA_MIN_YEAR,
+  blockLengthYears: 7,
 };
 
 function App() {

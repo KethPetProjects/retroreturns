@@ -746,6 +746,7 @@ export function runDistributionComparison(
     currentBalance,
     preRetirementAnnualContribution,
     historicalDataStartYear,
+    blockLengthYears,
   } = distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
   const effectiveHistoricalDataStartYear = Math.max(SP500_DATA_MIN_YEAR, historicalDataStartYear);
@@ -800,6 +801,7 @@ export function runDistributionComparison(
     preRetirementYears,
     preRetirementStartingBalance: currentBalance,
     preRetirementAnnualContribution,
+    blockLengthYears,
   });
 
   return {
@@ -850,6 +852,7 @@ export function validateDistributionInputs(
     currentBalance,
     preRetirementAnnualContribution,
     historicalDataStartYear,
+    blockLengthYears,
   } = inputs;
 
   if (
@@ -861,6 +864,16 @@ export function validateDistributionInputs(
     errors.push({
       field: 'historicalDataStartYear',
       message: `Historical data start year must be between ${SP500_DATA_MIN_YEAR} and ${SP500_DATA_MAX_YEAR - 9}, leaving at least 10 years of real data to sample from.`,
+    });
+  }
+
+  if (
+    blockLengthYears !== undefined &&
+    (Number.isNaN(blockLengthYears) || blockLengthYears < 1 || blockLengthYears > 20)
+  ) {
+    errors.push({
+      field: 'blockLengthYears',
+      message: 'Block length must be between 1 and 20 years.',
     });
   }
 

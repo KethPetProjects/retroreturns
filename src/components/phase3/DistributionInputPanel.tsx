@@ -287,6 +287,16 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
             onChange={(v) => update('historicalDataStartYear', v)}
           />
         </Field>
+
+        <Field label="Block Length (years)" error={fieldError(validationErrors, 'blockLengthYears')}>
+          <NumberField
+            className="input"
+            min={1}
+            max={20}
+            value={inputs.blockLengthYears}
+            onChange={(v) => update('blockLengthYears', v)}
+          />
+        </Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">
         Three ways to set Distribution's starting balance, in priority order. <strong>Current
@@ -350,6 +360,14 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         return is still real, unaltered historical data; this only changes which real years are
         eligible to be drawn, not the values themselves. Leave at the earliest available year to use
         the full dataset.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Block Length controls how the Monte Carlo simulation resamples history: instead of picking
+        each year independently (which ignores real bull/bear market clustering), it repeatedly
+        picks a random contiguous slice of this many real consecutive years and stitches those
+        blocks together. Longer blocks (e.g. 10) preserve more of a real cycle intact but leave
+        fewer distinct starting points to draw from, meaning less trial-to-trial variety; shorter
+        blocks (e.g. 5) do the opposite.
       </p>
     </section>
   );
