@@ -15,7 +15,7 @@ export interface UseWholeLifeComparisonResult {
 /**
  * Debounced Phase 2 comparison hook, mirroring useSimulation's pattern
  * (Section 3.1's 300ms live-recalculation behavior applied to the whole life
- * comparison inputs: premium scale and the S&P comparison starting year).
+ * comparison's one remaining input: premium scale).
  */
 export function useWholeLifeComparison(inputs: WholeLifeComparisonInputs): UseWholeLifeComparisonResult {
   const [debounced, setDebounced] = useState(inputs);
@@ -29,7 +29,7 @@ export function useWholeLifeComparison(inputs: WholeLifeComparisonInputs): UseWh
     }, DEBOUNCE_MS);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputs.spStartingYear, inputs.premiumScaleRatio, inputs.comparisonYears, inputs.feePct, inputs.taxRatePct]);
+  }, [inputs.premiumScaleRatio]);
 
   const result = useMemo(() => runWholeLifeComparison(debounced), [debounced]);
 

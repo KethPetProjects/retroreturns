@@ -416,13 +416,11 @@ Using the actual premium schedule (7 years @ $20,000, then $3,931/year after) an
 
 **This confirms the user's stated 4–5% non-guaranteed IRR range precisely**, calculated directly from the real illustration data using the same money-weighted (XIRR-style) methodology as Phase 1's Section 3.5 — meaning Phase 1 and Phase 2 will use a **consistent, comparable rate-of-return methodology** across both the S&P and whole life tracks. The guaranteed-only IRR (1.3–1.8%) represents the contractual floor if dividends were ever reduced to zero going forward — a genuinely useful "worst case" reference alongside the non-guaranteed projection.
 
-### 12.5 Two-Line Structure — Confirmed
+### 12.5 Two-Line Structure — Superseded (S&P comparison removed, decoupled from Phase 1)
 
-As planned, Phase 2 shows **two whole life lines**, matching the illustration's own structure:
-1. **Guaranteed cash value** — contractual, ~1.3–1.8% effective IRR over the long run in this example
-2. **Non-guaranteed (dividend-inclusive) cash value** — ~4.8–5.0% effective IRR, dependent on continuation of the current dividend scale
+**Original plan (as built initially):** Phase 2 showed two whole life lines (guaranteed and non-guaranteed cash value) plotted against S&P Phase 1 tracks (Actual and Average-Rate), using the WL policy's real funding schedule run through the S&P engine for an apples-to-apples comparison. This required picking a specific historical starting year for the S&P side, and it was locked to Phase 1's own Starting Year so both sides used the same real market history.
 
-Both should be plotted against the S&P Phase 1 tracks (Actual and Average-Rate) on the same or an adjacent chart, using the **same annual funding schedule** ($20,000/year for 7 years, then $3,931/year after) applied to the S&P side as well, for a true apples-to-apples comparison — this replaces Phase 1's flat-contribution assumption *for the purposes of this specific comparison* (Phase 1 itself remains flat-contribution by default, but Phase 2's comparison mode should mirror the WL policy's actual funding shape).
+**Revised (current):** removed entirely. The user pointed out this coupled Phase 2 to a Starting Year chosen for an unrelated purpose (Phase 1's top table is a general-purpose "explore S&P CAGR/growth-rate differences" tool, not necessarily "my real plan's starting point") — and that Phase 1's top table already owns the "explore S&P growth rates" job on its own. Phase 2 is now **pure reference-illustration facts only**: IRR, break-even year, cash value and death benefit by policy year — real, age-indexed data with zero Starting Year or S&P-return dependency. The `ComparisonChart` component and the `spComparison`/`spStartingYear` fields in `runWholeLifeComparison` were removed, not just hidden.
 
 ### 12.6 Additional Data Points Available for Future Use
 
@@ -441,25 +439,11 @@ The illustration also includes **Total Death Benefit (with and without dividends
 - [ ] Confirm whether this exact illustration (spouse's age 44, "Ramiya Arthi" per the source filename) is the one to hardcode as the app's default reference case, or whether the user's own policy (different age/premium) should be used instead, once available
 - [ ] Decide whether Phase 2's comparison should let the user adjust the WL funding schedule (e.g., different premium amounts) or treat it as a fixed reference case that isn't user-editable in v1
 
-### 12.9 Opportunity Cost of Insurance Costs (Uninvested Dollars)
+### 12.9 Opportunity Cost of Insurance Costs — Superseded (removed with the S&P comparison)
 
-**Purpose:** Every dollar of the $20,000/year premium that goes toward the **Base Contract Premium ($3,151/year) and FPR ($781/year) — combined $3,932/year, every year, for the full 55-year illustration** — is not itself accumulating as cash value the way APPUA dollars are. This is the cost of the insurance protection itself (mortality charges, policy expenses), and it's money a pure S&P investor would never spend, since a taxable brokerage or 401k account has no insurance cost component at all.
+**Original plan (as built initially):** a dedicated callout showing what the $3,932/year non-APPUA (insurance-cost) portion of the premium would have been worth if invested in the S&P 500 instead, run through the same Phase 1 engine and Starting Year as the main comparison.
 
-**This must be shown explicitly, not left implicit**, so a client can see: *"here's what these same non-APPUA dollars would have been worth if they'd gone into the market instead, rather than paying for the insurance wrapper."*
-
-**Calculation:**
-```
-non_appua_premium[year] = base_contract_premium + fpr_premium   // 3,932/year, every year of the illustration
-// Run this stream through the SAME Phase 1 engine (actual sequenced returns AND average-rate),
-// as its own independent side calculation — starting fresh, not blended into the main WL-vs-S&P comparison
-
-opportunity_cost_balance_actual[year] = [Phase 1 engine output using non_appua_premium as the contribution stream, actual sequenced returns]
-opportunity_cost_balance_avg[year] = [Phase 1 engine output using non_appua_premium as the contribution stream, average rate]
-```
-
-**Display:** a distinct line/metric in Phase 2's chart or a dedicated callout: **"If the $3,932/year insurance-cost portion of your premium had instead been invested in the S&P 500, it would be worth $X (actual) / $Y (average-rate) by year N — this is the opportunity cost of the insurance protection itself, separate from the APPUA dollars that are already being compared."**
-
-**Important framing note for Claude Code / UI copy:** this is not meant to imply the insurance cost was "wasted" — it purchased real death benefit protection the S&P side never had (see Section 12.10). The opportunity cost figure exists so the client can see the full picture and weigh protection value against foregone market growth themselves, not to steer them toward either product.
+**Revised (current):** removed as part of the same decoupling as Section 12.5 — this was the same category of thing (an S&P comparison coupled to Phase 1's Starting Year), just applied to a slice of the premium instead of the whole thing. The `OpportunityCostCallout` component and `computeOpportunityCost`/`opportunityCost` fields were removed, not just hidden. `BASE_CONTRACT_PREMIUM`/`FPR_PREMIUM`/`NON_APPUA_PREMIUM` remain defined in `wholeLifeIllustration.ts` as real, documented policy facts, just currently unconsumed by the UI.
 
 ### 12.10 Caveats Panel — Required on Both Phase 2 and Phase 4 Screens
 
@@ -499,14 +483,14 @@ opportunity_cost_balance_avg[year] = [Phase 1 engine output using non_appua_prem
 
 ### 12.12 Phase 2 Acceptance Criteria
 
-- [ ] Full year-by-year illustration data (guaranteed CV, non-guaranteed CV, dividend, premium, guaranteed/non-guaranteed death benefit) for years 1–55 is hardcoded and renders correctly
-- [ ] Guaranteed and non-guaranteed cash value lines both display on the comparison chart, clearly labeled
-- [ ] Break-even year (Year 6 on non-guaranteed, Year 7 on guaranteed) is correctly reflected in the data
-- [ ] Money-weighted IRR calculated from the real premium schedule and cash values matches the confirmed ~4.8–5.0% (non-guaranteed) / ~1.3–1.8% (guaranteed) range
-- [ ] Opportunity cost calculation (Section 12.9) correctly runs the $3,932/year non-APPUA premium stream through the Phase 1 engine and displays the result distinctly from the main comparison
-- [ ] Caveats panel (Section 12.10) is visible by default (not collapsed/hidden) on the Phase 2 screen and includes all six required caveats
-- [ ] Premium scaling toggle (Section 12.11) correctly scales all WL figures linearly and displays the prominent approximation warning whenever a non-original premium is active
-- [ ] The original $20,000/7-pay illustration remains easily resettable as the baseline "real illustration"
+- [x] Full year-by-year illustration data (guaranteed CV, non-guaranteed CV, dividend, premium, guaranteed/non-guaranteed death benefit) for years 1–55 is hardcoded and renders correctly
+- [x] Guaranteed and non-guaranteed cash value, IRR, break-even year, and death benefit all display in the Whole Life Policy Summary, clearly labeled — no comparison chart (removed, Section 12.5)
+- [x] Break-even year (Year 5 on non-guaranteed, Year 8 on guaranteed, per the actual anchor data — see the test file's note on a discrepancy with the doc's original year 6/7 prose claim) is correctly reflected in the data
+- [x] Money-weighted IRR calculated from the real premium schedule and cash values matches the confirmed ~4.8–5.0% (non-guaranteed) / ~1.3–1.8% (guaranteed) range
+- [x] Caveats panel (Section 12.10) is visible by default (not collapsed/hidden) on the Phase 2 screen and includes all six required caveats
+- [x] Premium scaling (Section 12.11) correctly scales all WL figures linearly and displays the prominent approximation warning whenever a non-original premium is active
+- [x] The original $20,000/7-pay illustration remains easily resettable as the baseline "real illustration"
+- [x] No dependency on Phase 1's Starting Year/Number of Years/Management Fee/Tax Rate anywhere in Phase 2 (Section 12.5/12.9 decoupling)
 
 ---
 
@@ -548,6 +532,10 @@ Unlike the original draft's two-line "Actual vs. Average-Rate" comparison (which
 | Long-Term Care Inflation Rate (%) | Percentage | 5% | Own inflation rate for LTC costs, separate from and typically higher than the general Inflation Adjustment rate |
 | Historical Data Start Year | Number (year) | 1928 (dataset's earliest) | See 13.4. Restricts the Monte Carlo return pool to real years on/after this one — e.g. 1960 excludes the volatile 1928–1958 era. Every sampled value stays real, unaltered data; this only changes which years are eligible |
 | Block Length (years) | Number | 7 | See 13.4. Years per resampled block in the Monte Carlo block bootstrap. Larger = more real-cycle realism, fewer distinct starting points; smaller = more variety, less momentum preserved |
+| Roth Percentage (%) | Percentage | 0% | See 13.10. Share of the portfolio that's a Roth IRA/401k — tax-free on withdrawal and excluded from RMDs. Assumes a proportional draw from both pots, not strategic sequencing |
+| Whole Life Cash Value at Retirement ($) | Dollar amount | $0 | See 13.13. A third tier of defense after the Cash Bucket — loans against this in down years instead of selling stock at a loss. 0 disables the buffer entirely |
+| Whole Life Cash Value Growth Rate (%) | Percentage | 4.5% | See 13.13. Fixed annual growth applied every year, regardless of stock returns |
+| Whole Life Loan Interest Rate (%) | Percentage | 6% | See 13.13. Rate accrued on any outstanding policy loan balance |
 | *(no input — always on)* | — | — | **Required Minimum Distributions** (see 13.9): start age (73/75) derived automatically from Current Age via SECURE 2.0's birth-year rule, no toggle to disable |
 
 All dollar income fields (Social Security, Other Income, Reverse Mortgage) and Long-Term Care Annual Cost are **annual**, matching Annual Expense's convention.
@@ -585,13 +573,15 @@ Each of `monteCarloTrials` (default 1,000) independent trials draws its own rand
 
 Unlike Phase 1's simple end-of-period haircut, Phase 3 solves for the exact gross portfolio withdrawal needed each year so that, after tax, the retiree nets the target spend — closed-form (not iterative).
 
-**Combined multi-source pooling:** portfolio withdrawal + the taxable portion of Social Security + Other Income are pooled into **one** combined taxable-income figure, taxed at the combined (Federal + State) flat rate above **one** standard deduction — mirroring how a real household files one unified tax return rather than taxing each income source separately. Reverse Mortgage income is excluded from taxable income entirely (real reverse mortgage proceeds are loan proceeds, not income), but still counts as spendable cash that reduces how much needs to come from the portfolio.
+**Combined multi-source pooling:** portfolio withdrawal + the taxable portion of Social Security + Other Income are pooled into **one** combined taxable-income figure, taxed at the combined (Federal + State) flat rate above **one** standard deduction — mirroring how a real household files one unified tax return rather than taxing each income source separately. Reverse Mortgage income is excluded from taxable income entirely (real reverse mortgage proceeds are loan proceeds, not income), but still counts as spendable cash that reduces how much needs to come from the portfolio. Roth Percentage (Section 13.10) further shrinks only the *portfolio withdrawal's own* taxable share.
 
 ```
 netFromPortfolio = netExpenseTarget - fixedIncome   // fixedIncome = SS + otherIncome + reverseMortgage
+taxableFraction = 1 - rothPortfolioPct
 grossWithdrawal  = solve G such that:
-  G - max(0, (G + taxableFixedIncome) - standardDeduction) * combinedTaxRate = netFromPortfolio
+  G - max(0, (G * taxableFraction + taxableFixedIncome) - standardDeduction) * combinedTaxRate = netFromPortfolio
   // taxableFixedIncome = SS * socialSecurityTaxablePortionPct + otherIncome
+  // rothPortfolioPct = 0 collapses this to the exact original single-pot formula
 ```
 
 Social Security starts at its own **Claiming Age** (independent of Stop-Working Age) and inflates from that year forward, not from year 1 of retirement — so a not-yet-claimed benefit doesn't look like it already grew with inflation while waiting.
@@ -626,7 +616,15 @@ Because this adds to the net spend target rather than offsetting it, it flows th
 
 The divisor shrinks as age increases (26.5 at 73 → 12.2 at 90 → 2.0 at 120+), so the required withdrawal percentage climbs from roughly 3.8% to well over 8% in later years — this is exactly the dynamic that was producing unrealistically large surviving balances before RMDs were modeled: a strong-market trial could keep compounding indefinitely with only expense-driven withdrawals, which isn't how a real tax-deferred account works past 73/75.
 
-**Deliberately out of scope:** the excess amount forced out beyond what's needed to cover spending isn't tracked further (reinvested elsewhere, held as cash, etc.) — it simply leaves the modeled portfolio, which is the conservative and honest choice for a tool answering "how long will *this* portfolio last." No account-type split (Traditional/Roth/taxable) and no toggle to disable RMDs — both considered and rejected as unnecessary complexity for the current scope.
+**Deliberately out of scope:** the excess amount forced out beyond what's needed to cover spending isn't tracked further (reinvested elsewhere, held as cash, etc.) — it simply leaves the modeled portfolio, which is the conservative and honest choice for a tool answering "how long will *this* portfolio last." No toggle to disable RMDs. A Traditional/Roth split was later added (Section 13.10) once the user's real situation made it relevant — Roth Percentage correctly shrinks the RMD-eligible base, since Roths are RMD-exempt for the original owner.
+
+### 13.10 Roth Percentage — Tax-Free Portfolio Share
+
+**Motivation:** the tool originally assumed the entire portfolio was tax-deferred (matching its "401(k)-style" framing). Real retirement accounts are often a mix — the user's own situation is roughly 35% Roth IRA, tax-free on withdrawal.
+
+**Design:** a single **Roth Percentage** input (0–100%) applied as a multiplier on the existing single-balance engine — no new balance to track, no architecture change. Only `(1 - rothPortfolioPct)` of each gross withdrawal counts toward taxable income (see the formula in 13.5); the RMD-eligible base is reduced by the same fraction, since Roth IRAs/401ks are exempt from RMDs for the original owner. `rothPortfolioPct = 0` collapses both formulas to the exact original single-pot behavior.
+
+**Deliberate limitation, flagged rather than hidden:** this assumes a *proportional* draw from both pots every year. Real tax planning often does something smarter — draining Traditional first while letting Roth ride tax-free longer (or the reverse, depending on the year's tax bracket), which would require tracking Roth and Traditional as two genuinely separate balances with their own sequencing logic. Considered and deferred: start with the cheap proportional-split version, since it correctly handles the two things that matter most (tax exemption and RMD exemption), and only build true two-balance sequencing later if the simplification turns out to matter.
 
 ### 13.11 Pre-Retirement Lifecycle Projection (Current Balance)
 
@@ -642,7 +640,24 @@ This deliberately correlates pre- and post-retirement market conditions within a
 
 **Bugfix caught during this build:** `useDistribution`'s debounce effect dependency array never listed `currentBalance`, `preRetirementAnnualContribution`, or `startingBalanceOverride` directly. Starting Balance Override happened to still work because its effect flows entirely through `startingBalanceActual` (which IS in the dependency list) — but lifecycle mode is resolved entirely inside `runDistributionComparison` and never touches `startingBalanceActual` at all, so changing Current Balance silently had no effect until this was fixed by adding all three fields explicitly to the dependency array.
 
-### 13.12 Resolved Decisions Log
+### 13.13 Whole Life Cash Value Loan Buffer
+
+**Motivation:** the user (and their spouse) hold whole life cash-value policies (7-Pay, mostly paid-up insurance) alongside their retirement portfolio. Brainstormed as a possible third "extra years" lever for Distribution, alongside Roth Percentage — could the policy's cash value be used to soften bad-sequence years the way the Cash Bucket (13.3) already does?
+
+**Design (a deliberately simplified pull-forward of Phase 4's precedent, not full Phase 4):** Section 14 originally scoped a full "policy loans as retirement income" model — direct vs. non-direct recognition, loan interest charged against a growing death benefit, overloan protection riders — and explicitly deferred it pending real policy data. Mid-session, the user realized that complexity is unnecessary for their actual question: rather than re-deriving cash value from issue age/gender/premium (which the Phase 2 illustration data can't cleanly do — see 12.12's superseded S&P-comparison section for why Phase 2 stayed decoupled from any of this), they already know their own and their spouse's illustrated cash value **at retirement age** from their real policy statements. So Distribution takes that single number directly as an input, exactly mirroring how Starting Balance Override (13.2) sidesteps re-deriving a balance from first principles.
+
+**Mechanic — a third tier of defense, layered after the Cash Bucket:**
+1. Draw from the Cash Bucket first, same as always (13.3).
+2. If a shortfall remains **and** it's a down year, borrow against the whole life cash value instead of selling stock at a loss — capped at whatever capacity remains (cash value minus any already-outstanding loan). Any further shortfall still falls to stock, same as when the buffer is disabled.
+3. The cash value itself is tracked as a genuinely **separate asset** from the stock/cash portfolio (like Social Security or the reverse mortgage draw, not folded into `beginningBalance`/`endingBalance`) and grows every year at its own fixed rate, regardless of that year's stock return — matching how real whole life cash value doesn't lose value in a market downturn.
+4. In an **up** year, any outstanding loan is repaid from stock gains **before** the Cash Bucket is refilled (confirmed via explicit user choice) — the loan accrues interest every year it's outstanding, unlike the Cash Bucket, which just sits idle, so paying it down first is strictly cheaper. This can mean the Cash Bucket is only partially refilled (or not refilled at all) in a year where a large loan also needs repaying.
+5. No loan is ever drawn in an up year, even if a shortfall exists — the buffer exists specifically to avoid selling stock low in a downturn, not as a general-purpose income source.
+
+**Inputs added:** Whole Life Cash Value at Retirement ($, default $0 — disables the buffer entirely), Whole Life Cash Value Growth Rate (%, default 4.5%), Whole Life Loan Interest Rate (%, default 6%, confirmed via explicit user choice). All three collapse the mechanic to fully backward-compatible no-op behavior at their defaults/zero.
+
+**Deliberate limitations, flagged rather than hidden:** no direct/non-direct recognition distinction (the full cash value is assumed to keep growing at its flat rate regardless of loan activity — the more common "non-direct recognition" behavior, but not universal). No death benefit reduction from an outstanding loan is tracked, since Distribution doesn't model a death benefit at all. No overloan protection — the loan is simply capped at available cash value capacity each year, which is a simpler (and more conservative) guardrail than modeling a real overloan-protection rider. Combining spouses' policies into one cash value figure assumes both are drawn from as a single pool, not sequenced individually.
+
+### 13.14 Resolved Decisions Log
 
 1. ✅ Distribution basis: fixed-dollar, inflation-adjusted, tax-grossed-up net spend target (13.3), not a %-of-balance rate
 2. ✅ Volatility modeling: Monte Carlo bootstrap over the real historical return pool (13.4), not a smooth Average-Rate scenario or a single replayed historical sequence — both considered, and the Average-Rate scenario was built then removed as low-value
@@ -659,6 +674,8 @@ This deliberately correlates pre- and post-retirement market conditions within a
 13. ✅ Block bootstrap (5-year blocks) replaced independent single-year resampling for real — item 2's original i.i.d. choice was revisited once actual simulated output was checked against real historical 30-year windows and found to reach CAGRs (~24%) that have never happened; verified this fix narrows that down to ~19-20% in testing (13.4)
 14. ✅ Historical Data Start Year: restricts which real years feed the simulation instead of capping/altering individual return values — capping was explicitly requested, checked against the data, and rejected as historically dishonest and asymmetric; year-range restriction achieves the same "less extreme" goal without touching any real value (13.4)
 15. ✅ Block Length made user-facing: originally an internal-only constant (5 years); revised to a real input (default 7) once the user wanted to compare different assumptions directly rather than requesting one hardcoded value — same reasoning that made Historical Data Start Year an input rather than a fixed constant (13.4)
+16. ✅ Roth Percentage: a proportional-split multiplier on the existing engine (not a second tracked balance) — correctly excludes its share from both taxable income and the RMD base, at the cost of not modeling strategic Traditional-first/Roth-first sequencing (13.10)
+17. ✅ Whole Life Cash Value Loan Buffer: a simplified pull-forward of Phase 4's precedent, taking the user's own illustrated cash value at retirement as a direct input rather than re-deriving it from issue age/gender/premium — a third defense tier after the Cash Bucket, capped loan draws in down years only, repaid from stock gains before the Cash Bucket refill (confirmed priority), cash value grows every year regardless of market returns (13.13)
 
 ---
 
@@ -666,7 +683,7 @@ This deliberately correlates pre- and post-retirement market conditions within a
 
 **Status:** Requirements captured, not yet built. Mirrors Phase 3's distribution concept but applied to the Phase 2 whole life track, using policy loans instead of withdrawals.
 
-**Precedent already in place:** Phase 3's cash bucket strategy (Section 13.3) was deliberately designed as a reusable "growth asset + buffer asset" pattern — S&P 500 as the growth asset, a cash account as the buffer, drawn first and refilled only in up years. Phase 4 is expected to reuse this same shape with whole life cash value standing in for the cash buffer, once real policy loan data is available.
+**Precedent already in place:** Phase 3's cash bucket strategy (Section 13.3) was deliberately designed as a reusable "growth asset + buffer asset" pattern — S&P 500 as the growth asset, a cash account as the buffer, drawn first and refilled only in up years. Phase 4 is expected to reuse this same shape with whole life cash value standing in for the cash buffer, once real policy loan data is available. **A simplified version of this exact pattern already shipped as Section 13.13** — the user's real illustrated cash value at retirement, taken as a direct input rather than derived from issue age/gender/premium, used as a capped down-year loan buffer with fixed growth/loan rates. This phase (14) remains the deferred, fuller version: policy loans reducing an actual tracked death benefit, direct/non-direct recognition, overloan protection — none of which 13.13 attempts.
 
 **🚫 NOT IN SCOPE for the current build session, and not yet fully data-complete.** In addition to being deferred alongside Phase 3, this phase is specifically blocked on real policy data (direct vs. non-direct recognition status, actual loan interest rate, overloan protection rider status — see Section 14.5). Do not attempt to build this phase with placeholder/generic loan assumptions.
 

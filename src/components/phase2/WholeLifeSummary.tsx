@@ -6,22 +6,14 @@ interface WholeLifeSummaryProps {
 }
 
 export function WholeLifeSummary({ result }: WholeLifeSummaryProps) {
-  const {
-    scaledRows,
-    guaranteedIrr,
-    nonGuaranteedIrr,
-    guaranteedBreakEvenYear,
-    nonGuaranteedBreakEvenYear,
-    finalSpActualAfterTax,
-    finalSpAverageAfterTax,
-    taxRatePct,
-  } = result;
+  const { scaledRows, guaranteedIrr, nonGuaranteedIrr, guaranteedBreakEvenYear, nonGuaranteedBreakEvenYear } =
+    result;
   const finalRow = scaledRows[scaledRows.length - 1];
 
   return (
     <section className="card p-4 sm:p-6">
       <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Whole Life Comparison Summary
+        Whole Life Policy Summary
       </h2>
       <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="Guaranteed IRR" value={formatPercent(guaranteedIrr)} hint="Contractual floor" />
@@ -39,42 +31,24 @@ export function WholeLifeSummary({ result }: WholeLifeSummaryProps) {
           value={nonGuaranteedBreakEvenYear ? `Year ${nonGuaranteedBreakEvenYear}` : '—'}
         />
         <Metric
-          label={`Final Guaranteed Cash Value (Year ${finalRow.year})`}
+          label={`Final Guaranteed Cash Value (Year ${finalRow.year}, Age ${finalRow.age})`}
           value={formatDollars(finalRow.guaranteedCashValue)}
           hint="Policy loans against this are typically tax-free while the policy stays in force"
         />
         <Metric
-          label={`Final Non-Guaranteed Cash Value (Year ${finalRow.year})`}
+          label={`Final Non-Guaranteed Cash Value (Year ${finalRow.year}, Age ${finalRow.age})`}
           value={formatDollars(finalRow.nonGuaranteedCashValue)}
           hint="Policy loans against this are typically tax-free while the policy stays in force"
         />
         <Metric
-          label={`Final Guaranteed Death Benefit (Year ${finalRow.year})`}
+          label={`Final Guaranteed Death Benefit (Year ${finalRow.year}, Age ${finalRow.age})`}
           value={formatDollars(finalRow.guaranteedDeathBenefit)}
-          hint="The S&P side has no equivalent — this isn't accumulation value, it's protection value"
+          hint="This isn't accumulation value, it's protection value"
         />
         <Metric
-          label={`Final Non-Guaranteed Death Benefit (Year ${finalRow.year})`}
+          label={`Final Non-Guaranteed Death Benefit (Year ${finalRow.year}, Age ${finalRow.age})`}
           value={formatDollars(finalRow.nonGuaranteedDeathBenefit)}
-          hint="The S&P side has no equivalent — this isn't accumulation value, it's protection value"
-        />
-        <Metric
-          label="Final S&P Actual (same schedule)"
-          value={formatDollars(finalSpActualAfterTax)}
-          hint={
-            taxRatePct > 0
-              ? `After-tax if withdrawn as a lump sum, at the Accumulation section's ${formatPercent(taxRatePct)} tax rate`
-              : 'Pre-tax (Accumulation section tax rate is 0%)'
-          }
-        />
-        <Metric
-          label="Final S&P Average-Rate (same schedule)"
-          value={formatDollars(finalSpAverageAfterTax)}
-          hint={
-            taxRatePct > 0
-              ? `After-tax if withdrawn as a lump sum, at the Accumulation section's ${formatPercent(taxRatePct)} tax rate`
-              : 'Pre-tax (Accumulation section tax rate is 0%)'
-          }
+          hint="This isn't accumulation value, it's protection value"
         />
       </dl>
     </section>

@@ -9,11 +9,11 @@ interface DistributionTableProps {
   currentAge: number;
 }
 
-const TOTAL_COLUMNS = 16;
+const TOTAL_COLUMNS = 18;
 // Pre-retirement rows only populate Year/Age/Beg. Balance/S&P Return/Contribution
 // and Ending Balance; every retirement-only column in between (Gross
-// Withdrawal through Refilled?) is filled with this many "—" placeholders.
-const RETIREMENT_ONLY_COLUMNS = 10;
+// Withdrawal through WL Loan Balance) is filled with this many "—" placeholders.
+const RETIREMENT_ONLY_COLUMNS = 12;
 
 export function DistributionTable({ rows, stopWorkingAge, preRetirementRows, currentAge }: DistributionTableProps) {
   return (
@@ -48,6 +48,8 @@ export function DistributionTable({ rows, stopWorkingAge, preRetirementRows, cur
                 'Stock Balance',
                 'Cash Balance',
                 'Refilled?',
+                'WL Cash Value',
+                'WL Loan Balance',
                 'Ending Balance',
               ].map((label) => (
                 <th
@@ -153,6 +155,12 @@ export function DistributionTable({ rows, stopWorkingAge, preRetirementRows, cur
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-center">
                   {row.refilled ? '✓' : ''}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-slate-400">
+                  {row.wholeLifeCashValueBalance > 0 ? formatDollars(row.wholeLifeCashValueBalance) : '—'}
+                </td>
+                <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 text-loss-400">
+                  {row.wholeLifeLoanBalance > 0 ? formatDollars(row.wholeLifeLoanBalance) : '—'}
                 </td>
                 <td className="whitespace-nowrap border-b border-navy-800 px-3 py-1.5 font-medium text-slate-100">
                   {formatDollars(row.endingBalance)}

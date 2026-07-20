@@ -132,6 +132,41 @@ describe('solveGrossWithdrawal / computeCombinedTaxOwed (multi-income-source gen
   it('returns 0 when fixed income alone already covers the net expense target', () => {
     expect(solveGrossWithdrawal(50000, 15000, 0.2, 0, 80000)).toBe(0);
   });
+
+  it('rothPortfolioPct = 0 is a strict special case: identical to the no-Roth formula', () => {
+    const withoutRoth = solveGrossWithdrawal(80000, 15000, 0.2, 10000, 10000);
+    const explicitZeroRoth = solveGrossWithdrawal(80000, 15000, 0.2, 10000, 10000, 0);
+    expect(explicitZeroRoth).toBeCloseTo(withoutRoth, 8);
+  });
+
+  it('a larger Roth share reduces the required gross withdrawal for the same net spend', () => {
+    const noRoth = solveGrossWithdrawal(80000, 15000, 0.2, 0, 0, 0);
+    const halfRoth = solveGrossWithdrawal(80000, 15000, 0.2, 0, 0, 0.5);
+    const allRoth = solveGrossWithdrawal(80000, 15000, 0.2, 0, 0, 1);
+    expect(halfRoth).toBeLessThan(noRoth);
+    expect(allRoth).toBeLessThan(halfRoth);
+    // 100% Roth means zero tax ever applies — gross withdrawal exactly equals net need.
+    expect(allRoth).toBeCloseTo(80000, 6);
+  });
+
+  it('round-trips net = gross - tax(gross, rothPct) across a range of Roth percentages', () => {
+    for (const rothPortfolioPct of [0, 0.25, 0.5, 0.75, 1]) {
+      const net = 90000;
+      const standardDeduction = 15000;
+      const taxRatePct = 0.25;
+      const gross = solveGrossWithdrawal(net, standardDeduction, taxRatePct, 0, 0, rothPortfolioPct);
+      const tax = computeCombinedTaxOwed(gross, standardDeduction, taxRatePct, 0, rothPortfolioPct);
+      expect(gross - tax).toBeCloseTo(net, 6);
+    }
+  });
+
+  it('combines correctly with pooled taxable fixed income — only the portfolio withdrawal gets the Roth exclusion', () => {
+    const gross = solveGrossWithdrawal(80000, 15000, 0.2, 20000, 20000, 0.5);
+    const tax = computeCombinedTaxOwed(gross, 15000, 0.2, 20000, 0.5);
+    // Total spendable (gross + fixed income - tax) should still net exactly the target,
+    // even though only half of gross (not the fixed income) is tax-free.
+    expect(gross + 20000 - tax).toBeCloseTo(80000, 6);
+  });
 });
 
 describe('rmdDivisorForAge / rmdStartAgeForBirthYear (SECURE 2.0 / IRS Uniform Lifetime Table)', () => {
@@ -648,6 +683,155 @@ describe('runWithdrawalTrack — Required Minimum Distributions (RMD)', () => {
     expect(impliedDivisorYear1).toBeCloseTo(26.5, 1);
     expect(impliedDivisorYear2).toBeCloseTo(25.5, 1);
   });
+
+  it('excludes the Roth share of the balance from the RMD-eligible base (Roths are RMD-exempt)', () => {
+    const noRoth = runWithdrawalTrack({ ...base, rmdStartYear: 1, rmdStartAge: 73 });
+    const halfRoth = runWithdrawalTrack({ ...base, rmdStartYear: 1, rmdStartAge: 73, rothPortfolioPct: 0.5 });
+    // RMD-forced amount should be ~half as large when half the balance is Roth-exempt.
+    expect(halfRoth.rows[0].grossWithdrawal).toBeCloseTo(noRoth.rows[0].grossWithdrawal * 0.5, 0);
+  });
+});
+
+describe('runWithdrawalTrack — Whole Life Cash Value loan buffer (Section 13.13)', () => {
+  it('behaves identically whether the whole life fields are provided as explicit zeros or omitted entirely', () => {
+    const base = {
+      startingBalance: 1_000_000,
+      returns: [0.08, -0.05, 0.12],
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      taxRatePct: 0.15,
+      feePct: 0.0003,
+    };
+    const omitted = runWithdrawalTrack(base);
+    const explicitZero = runWithdrawalTrack({
+      ...base,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0,
+      wholeLifeLoanInterestRatePct: 0,
+    });
+    expect(explicitZero.finalBalance).toBeCloseTo(omitted.finalBalance, 6);
+    expect(omitted.rows.every((r) => r.wholeLifeCashValueBalance === 0 && r.wholeLifeLoanBalance === 0)).toBe(true);
+    expect(explicitZero.rows.every((r) => r.wholeLifeCashValueBalance === 0 && r.wholeLifeLoanBalance === 0)).toBe(
+      true,
+    );
+  });
+
+  it('grows the cash value every year at its own fixed rate, regardless of stock returns', () => {
+    // annualExpense = 0 -> no withdrawal need, so the loan mechanic can't
+    // interfere; this isolates the cash value's own growth.
+    const result = runWithdrawalTrack({
+      startingBalance: 100000,
+      returns: [0.1, -0.1, 0.2],
+      annualExpense: 0,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      wholeLifeCashValueAtRetirement: 10000,
+      wholeLifeCashValueGrowthRatePct: 0.05,
+      wholeLifeLoanInterestRatePct: 0.06,
+    });
+    expect(result.rows[0].wholeLifeCashValueBalance).toBeCloseTo(10500, 4);
+    expect(result.rows[1].wholeLifeCashValueBalance).toBeCloseTo(11025, 4);
+    expect(result.rows[2].wholeLifeCashValueBalance).toBeCloseTo(11576.25, 4);
+    expect(result.rows.every((r) => r.wholeLifeLoanBalance === 0)).toBe(true);
+  });
+
+  it('borrows against the cash value instead of selling stock, in a down year with a cash shortfall', () => {
+    // No cash bucket, no inflation/tax/deduction -> gross withdrawal = annual
+    // expense = 50,000, entirely unmet by the 30,000 stock balance alone.
+    const result = runWithdrawalTrack({
+      startingBalance: 30000,
+      returns: [-0.1],
+      annualExpense: 50000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      wholeLifeCashValueAtRetirement: 100000,
+      wholeLifeCashValueGrowthRatePct: 0.05,
+      wholeLifeLoanInterestRatePct: 0.06,
+    });
+    // The entire 50,000 withdrawal came from the loan, so stock only shrank
+    // by the market return, not by any withdrawal: 30,000 * 0.9 = 27,000.
+    expect(result.rows[0].stockBalance).toBeCloseTo(27000, 4);
+    expect(result.rows[0].wholeLifeLoanBalance).toBeCloseTo(53000, 4); // 50,000 * 1.06
+    expect(result.rows[0].wholeLifeCashValueBalance).toBeCloseTo(105000, 4); // 100,000 * 1.05
+  });
+
+  it('caps the loan draw at available capacity, forcing the remaining shortfall from stock', () => {
+    const result = runWithdrawalTrack({
+      startingBalance: 30000,
+      returns: [-0.1],
+      annualExpense: 50000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      wholeLifeCashValueAtRetirement: 20000, // caps well short of the 50,000 need
+      wholeLifeCashValueGrowthRatePct: 0.05,
+      wholeLifeLoanInterestRatePct: 0.06,
+    });
+    // Loan draws the full 20,000 capacity; the remaining 30,000 shortfall is
+    // forced from stock, fully depleting it before the return is applied.
+    expect(result.rows[0].wholeLifeLoanBalance).toBeCloseTo(21200, 4); // 20,000 * 1.06
+    expect(result.rows[0].stockBalance).toBeCloseTo(0, 4);
+  });
+
+  it('does not draw a loan in an up year, even when a shortfall exists', () => {
+    const result = runWithdrawalTrack({
+      startingBalance: 10000,
+      returns: [0.08],
+      annualExpense: 50000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      wholeLifeCashValueAtRetirement: 100000,
+      wholeLifeCashValueGrowthRatePct: 0.05,
+      wholeLifeLoanInterestRatePct: 0.06,
+    });
+    expect(result.rows[0].wholeLifeLoanBalance).toBe(0);
+    expect(result.rows[0].stockBalance).toBeCloseTo(0, 4); // fully drained by the unmet shortfall
+    expect(result.rows[0].wholeLifeCashValueBalance).toBeCloseTo(105000, 4); // still grows regardless
+  });
+
+  it('repays the outstanding loan from stock gains before refilling the cash bucket, even when that leaves the bucket only partially refilled', () => {
+    const config = {
+      startingBalance: 60000,
+      returns: [-0.1, -0.1, -0.1, 0.01, -0.05],
+      annualExpense: 10000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0,
+      feePct: 0,
+      cashBucketYears: 2,
+      cashInterestRatePct: 0,
+    };
+    const withBuffer = runWithdrawalTrack({
+      ...config,
+      wholeLifeCashValueAtRetirement: 8000,
+      wholeLifeCashValueGrowthRatePct: 0.05,
+      wholeLifeLoanInterestRatePct: 0.06,
+    });
+    const withoutBuffer = runWithdrawalTrack(config);
+
+    // By year 4 (the up year), both scenarios have a loan candidate and a
+    // cash bucket target of 10,000. Without the buffer there's no loan to
+    // repay, so stock gains fully refill the bucket to its 10,000 target.
+    expect(withoutBuffer.rows[3].cashBalance).toBeCloseTo(10000, 4);
+    expect(withoutBuffer.rows[3].refilled).toBe(true);
+
+    // With the buffer, the outstanding loan is repaid FIRST out of the same
+    // stock gains, fully (loan balance hits 0) — but that leaves too little
+    // stock to also hit the full 10,000 refill target, so the bucket only
+    // gets partially refilled.
+    expect(withBuffer.rows[3].wholeLifeLoanBalance).toBeCloseTo(0, 4);
+    expect(withBuffer.rows[3].refilled).toBe(true);
+    expect(withBuffer.rows[3].cashBalance).toBeCloseTo(8368.828, 2);
+    expect(withBuffer.rows[3].cashBalance).toBeLessThan(withoutBuffer.rows[3].cashBalance);
+  });
 });
 
 describe('runMonteCarloDistribution', () => {
@@ -910,6 +1094,10 @@ describe('runDistributionComparison (integration)', () => {
         preRetirementAnnualContribution: 0,
         historicalDataStartYear: SP500_DATA_MIN_YEAR,
         blockLengthYears: 7,
+        rothPortfolioPct: 0,
+        wholeLifeCashValueAtRetirement: 0,
+        wholeLifeCashValueGrowthRatePct: 0.045,
+        wholeLifeLoanInterestRatePct: 0.06,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -946,6 +1134,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
@@ -984,6 +1176,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     const withSS = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -1028,6 +1224,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 3_000_000,
@@ -1069,6 +1269,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
 
     const bornBefore1960 = runDistributionComparison({
@@ -1116,6 +1320,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 8_000_000,
@@ -1154,6 +1362,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 15000,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     // A trivially small startingBalanceActual would fail almost every trial
     // if it were actually used — proves lifecycle mode ignored it entirely
@@ -1194,6 +1406,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 10000,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 5_000_000, // matches the override, to isolate which one actually won
@@ -1233,6 +1449,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: 1960,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -1270,6 +1490,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR - 50,
       blockLengthYears: 7,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -1306,6 +1530,10 @@ describe('runDistributionComparison (integration)', () => {
       preRetirementAnnualContribution: 0,
       historicalDataStartYear: SP500_DATA_MIN_YEAR,
       blockLengthYears: 10,
+      rothPortfolioPct: 0,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
     };
     // Just a smoke test that a non-default block length doesn't error and
     // still produces a valid result — the block-length mechanism itself is
@@ -1317,6 +1545,58 @@ describe('runDistributionComparison (integration)', () => {
       randomFn: seededRandom(17),
     });
     expect(result.monteCarlo.medianTrialRows.length).toBeGreaterThan(0);
+  });
+
+  it('threads rothPortfolioPct through end-to-end, reducing the required withdrawal and the RMD-eligible base', () => {
+    const baseInputs = {
+      currentAge: 67, // birth year ~1959 -> RMD starts at 73
+      stopWorkingAge: 70,
+      planThroughAge: 95,
+      annualExpense: 60000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 70,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
+      blockLengthYears: 7,
+      wholeLifeCashValueAtRetirement: 0,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
+    };
+    const noRoth = runDistributionComparison({
+      startingBalanceActual: 8_000_000, // large enough that RMD forcing kicks in
+      distributionInputs: { ...baseInputs, rothPortfolioPct: 0 },
+      currentCalendarYear: 2026,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(18),
+    });
+    const withRoth = runDistributionComparison({
+      startingBalanceActual: 8_000_000,
+      distributionInputs: { ...baseInputs, rothPortfolioPct: 0.35 },
+      currentCalendarYear: 2026,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(18),
+    });
+    // Same seed/inputs otherwise, so any difference in the first year's
+    // withdrawal comes from the Roth exclusion (either the RMD base or the
+    // tax gross-up, whichever dominates that year).
+    expect(withRoth.monteCarlo.medianTrialRows[0].grossWithdrawal).toBeLessThan(
+      noRoth.monteCarlo.medianTrialRows[0].grossWithdrawal,
+    );
   });
 });
 
@@ -1735,5 +2015,153 @@ describe('validateDistributionInputs (Section 13.2)', () => {
     );
     expect(errors7.some((e) => e.field === 'blockLengthYears')).toBe(false);
     expect(errors10.some((e) => e.field === 'blockLengthYears')).toBe(false);
+  });
+
+  it('flags a rothPortfolioPct outside 0-1', () => {
+    const tooLow = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        rothPortfolioPct: -0.1,
+        wholeLifeCashValueAtRetirement: 0,
+        wholeLifeCashValueGrowthRatePct: 0.045,
+        wholeLifeLoanInterestRatePct: 0.06,
+      },
+      phase1,
+    );
+    const tooHigh = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        rothPortfolioPct: 1.1,
+        wholeLifeCashValueAtRetirement: 0,
+        wholeLifeCashValueGrowthRatePct: 0.045,
+        wholeLifeLoanInterestRatePct: 0.06,
+      },
+      phase1,
+    );
+    expect(tooLow.some((e) => e.field === 'rothPortfolioPct')).toBe(true);
+    expect(tooHigh.some((e) => e.field === 'rothPortfolioPct')).toBe(true);
+  });
+
+  it('allows a reasonable rothPortfolioPct like 35%', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        rothPortfolioPct: 0.35,
+        wholeLifeCashValueAtRetirement: 0,
+        wholeLifeCashValueGrowthRatePct: 0.045,
+        wholeLifeLoanInterestRatePct: 0.06,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'rothPortfolioPct')).toBe(false);
+  });
+
+  it('flags a negative wholeLifeCashValueAtRetirement', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        wholeLifeCashValueAtRetirement: -1000,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'wholeLifeCashValueAtRetirement')).toBe(true);
+  });
+
+  it('flags a wholeLifeCashValueGrowthRatePct or wholeLifeLoanInterestRatePct outside 0-15%', () => {
+    const tooHighGrowth = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        wholeLifeCashValueGrowthRatePct: 0.2,
+      },
+      phase1,
+    );
+    const negativeGrowth = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        wholeLifeCashValueGrowthRatePct: -0.01,
+      },
+      phase1,
+    );
+    const tooHighLoanRate = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        wholeLifeLoanInterestRatePct: 0.16,
+      },
+      phase1,
+    );
+    expect(tooHighGrowth.some((e) => e.field === 'wholeLifeCashValueGrowthRatePct')).toBe(true);
+    expect(negativeGrowth.some((e) => e.field === 'wholeLifeCashValueGrowthRatePct')).toBe(true);
+    expect(tooHighLoanRate.some((e) => e.field === 'wholeLifeLoanInterestRatePct')).toBe(true);
+  });
+
+  it('allows reasonable whole life buffer values like a 4.5% growth rate and a 6% loan rate', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        wholeLifeCashValueAtRetirement: 150000,
+        wholeLifeCashValueGrowthRatePct: 0.045,
+        wholeLifeLoanInterestRatePct: 0.06,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'wholeLifeCashValueAtRetirement')).toBe(false);
+    expect(errors.some((e) => e.field === 'wholeLifeCashValueGrowthRatePct')).toBe(false);
+    expect(errors.some((e) => e.field === 'wholeLifeLoanInterestRatePct')).toBe(false);
   });
 });

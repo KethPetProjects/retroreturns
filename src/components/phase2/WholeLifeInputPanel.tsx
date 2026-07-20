@@ -4,30 +4,17 @@ import { scaleRatioFromFrontLoadedPremium } from '../../utils/premiumScaling';
 
 interface WholeLifeInputPanelProps {
   frontLoadedPremium: number;
-  spStartingYear: number;
   onFrontLoadedPremiumChange: (value: number) => void;
-  spDataTruncated: boolean;
-  spYearsAvailable: number;
-  comparisonYears: number;
-  spFeePct: number;
 }
 
-export function WholeLifeInputPanel({
-  frontLoadedPremium,
-  spStartingYear,
-  onFrontLoadedPremiumChange,
-  spDataTruncated,
-  spYearsAvailable,
-  comparisonYears,
-  spFeePct,
-}: WholeLifeInputPanelProps) {
+export function WholeLifeInputPanel({ frontLoadedPremium, onFrontLoadedPremiumChange }: WholeLifeInputPanelProps) {
   const isOriginal = frontLoadedPremium === ORIGINAL_FRONT_LOADED_PREMIUM;
 
   return (
     <section className="card p-4 sm:p-6">
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-          Whole Life Comparison Inputs
+          Whole Life Policy Inputs
         </h2>
         {!isOriginal && (
           <button
@@ -58,31 +45,8 @@ export function WholeLifeInputPanel({
           </span>
         </label>
 
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium uppercase tracking-wide text-slate-400">
-            S&amp;P 500 Comparison Starting Year
-          </span>
-          <div className="input flex items-center text-slate-300">{spStartingYear}</div>
-          <span className="text-xs text-slate-500">
-            Locked to the Accumulation section's Starting Year above, so both sides of this
-            comparison use the same real market history, over the same {comparisonYears}-year
-            window (also from the Accumulation section's Number of Years).{' '}
-            {spDataTruncated && (
-              <span className="text-amber-400">
-                Real S&amp;P data only covers {spYearsAvailable} of those {comparisonYears} years
-                from {spStartingYear} — the S&amp;P lines on the chart stop there while the whole
-                life lines continue through year {comparisonYears}.
-              </span>
-            )}
-          </span>
-        </div>
-
         <div className="flex flex-col justify-end gap-1 text-xs text-slate-500">
           <p>Scale ratio: {scaleRatioFromFrontLoadedPremium(frontLoadedPremium).toFixed(3)}×</p>
-          <p>
-            S&amp;P comparison fee: {(spFeePct * 100).toFixed(2)}% — synced from the Accumulation
-            section's Management Fee above, so both sides use the same fee assumption.
-          </p>
         </div>
       </div>
     </section>

@@ -64,6 +64,13 @@ export function rmdStartAgeForBirthYear(birthYear: number): number {
  * fixedIncome = ALL outside income that's actually spendable (taxable and
  * tax-free, e.g. reverse mortgage draws), which directly offsets how much
  * needs to come from the portfolio at all.
+ *
+ * rothPortfolioPct = the fraction of G itself that's tax-free (a Roth
+ * IRA/401k share of the portfolio) — assumes a proportional draw from both
+ * pots every year (no strategic Traditional-first/Roth-first sequencing).
+ * Only (1 - rothPortfolioPct) of G counts toward taxable income; all of G
+ * is still spendable. rothPortfolioPct = 0 collapses this to the exact
+ * original single-pot formula.
  */
 export function solveGrossWithdrawal(
   netExpenseTarget: number,
@@ -71,16 +78,19 @@ export function solveGrossWithdrawal(
   taxRatePct: number,
   taxableFixedIncome: number = 0,
   fixedIncome: number = 0,
+  rothPortfolioPct: number = 0,
 ): number {
   const netFromPortfolio = netExpenseTarget - fixedIncome;
   if (netFromPortfolio <= 0) return 0;
-  if (taxRatePct <= 0) return netFromPortfolio;
+  const taxableFraction = 1 - rothPortfolioPct;
+  if (taxRatePct <= 0 || taxableFraction <= 0) return netFromPortfolio;
 
+  const effectiveTaxRate = taxRatePct * taxableFraction;
   const candidateGross =
-    (netFromPortfolio + (taxableFixedIncome - standardDeduction) * taxRatePct) / (1 - taxRatePct);
+    (netFromPortfolio + (taxableFixedIncome - standardDeduction) * taxRatePct) / (1 - effectiveTaxRate);
   // If the combined taxable income at this candidate gross wouldn't actually
   // exceed the deduction, no tax is owed at all and G is just the net need.
-  return candidateGross + taxableFixedIncome > standardDeduction
+  return candidateGross * taxableFraction + taxableFixedIncome > standardDeduction
     ? Math.max(0, candidateGross)
     : netFromPortfolio;
 }
@@ -102,8 +112,9 @@ export function computeCombinedTaxOwed(
   standardDeduction: number,
   taxRatePct: number,
   taxableFixedIncome: number = 0,
+  rothPortfolioPct: number = 0,
 ): number {
-  return Math.max(0, grossWithdrawal + taxableFixedIncome - standardDeduction) * taxRatePct;
+  return Math.max(0, grossWithdrawal * (1 - rothPortfolioPct) + taxableFixedIncome - standardDeduction) * taxRatePct;
 }
 
 export function computeTaxOwed(grossWithdrawal: number, standardDeduction: number, taxRatePct: number): number {
@@ -132,6 +143,10 @@ export interface WithdrawalYearResult {
   longTermCareCost: number;
   /** Whether the IRS Required Minimum Distribution forced this year's withdrawal above what the expense/LTC plan alone would have required. */
   rmdApplied: boolean;
+  /** Whole life policy cash value, tracked as a genuinely separate asset from the portfolio (like Social Security or a reverse mortgage — not folded into stockBalance/cashBalance/beginningBalance/endingBalance). Grows every year at its own fixed rate regardless of stock returns. 0 when the buffer isn't in use. */
+  wholeLifeCashValueBalance: number;
+  /** Outstanding balance of a loan against the whole life cash value — drawn in down years when the cash bucket runs short (instead of selling stock at a loss), repaid from stock gains in up years (before refilling the cash bucket). Accrues interest every year it's outstanding. */
+  wholeLifeLoanBalance: number;
 }
 
 export interface WithdrawalTrackResult {
@@ -177,6 +192,7 @@ function projectYearlyPlan(
   longTermCareAnnualCost: number,
   longTermCareStartYear: number,
   longTermCareInflationRatePct: number,
+  rothPortfolioPct: number,
 ): ProjectedYearPlan[] {
   const projected: ProjectedYearPlan[] = [];
   for (let i = 0; i < years; i++) {
@@ -219,8 +235,15 @@ function projectYearlyPlan(
       taxRatePct,
       taxableFixedIncome,
       fixedIncome,
+      rothPortfolioPct,
     );
-    const taxOwed = computeCombinedTaxOwed(grossWithdrawal, yearStandardDeduction, taxRatePct, taxableFixedIncome);
+    const taxOwed = computeCombinedTaxOwed(
+      grossWithdrawal,
+      yearStandardDeduction,
+      taxRatePct,
+      taxableFixedIncome,
+      rothPortfolioPct,
+    );
 
     projected.push({
       netExpenseTarget,
@@ -273,6 +296,14 @@ export interface RunWithdrawalTrackOptions {
   rmdStartYear?: number;
   /** Attained age at rmdStartYear (73 or 75 per SECURE 2.0) — used together with rmdStartYear to look up each subsequent year's IRS divisor. */
   rmdStartAge?: number;
+  /** Fraction (0-1) of the portfolio that's a Roth IRA/401k — tax-free on withdrawal, and excluded from the RMD-eligible base (Roths aren't subject to RMDs for the original owner). Assumes a proportional draw from both pots every year, not strategic sequencing. 0 (the default) treats the whole portfolio as tax-deferred. */
+  rothPortfolioPct?: number;
+  /** Whole life policy cash value at Stop-Working Age (today's dollars, combined across policies) — the starting balance for the loan buffer (13.13). 0 (the default) disables the buffer entirely. */
+  wholeLifeCashValueAtRetirement?: number;
+  /** Fixed annual growth rate the whole life cash value earns every year, independent of stock returns. */
+  wholeLifeCashValueGrowthRatePct?: number;
+  /** Annual interest rate accrued on any outstanding whole life loan balance. */
+  wholeLifeLoanInterestRatePct?: number;
 }
 
 /**
@@ -300,6 +331,17 @@ export interface RunWithdrawalTrackOptions {
  *    plan alone would have withdrawn. Unlike every other input here, RMD
  *    depends on the simulated balance path, so it can't be precomputed in
  *    projectYearlyPlan — it's evaluated fresh each year inside this loop.
+ *  - an optional whole life cash value LOAN buffer (Section 13.13), a THIRD
+ *    tier of defense after the cash bucket: in a down year, if a shortfall
+ *    remains after the cash bucket, borrow against the whole life cash
+ *    value instead of selling stock at a loss (capped at available cash
+ *    value minus any already-outstanding loan). In an up year, repay the
+ *    outstanding loan from stock gains FIRST (it accrues interest every
+ *    year it's outstanding, unlike the cash bucket), then refill the cash
+ *    bucket with whatever's left. The cash value itself grows every year
+ *    at its own fixed rate regardless of stock returns or loan activity —
+ *    tracked as a genuinely separate asset from the portfolio, not folded
+ *    into stockBalance/cashBalance.
  */
 export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): WithdrawalTrackResult {
   const {
@@ -322,6 +364,10 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     longTermCareInflationRatePct = 0,
     rmdStartYear,
     rmdStartAge,
+    rothPortfolioPct = 0,
+    wholeLifeCashValueAtRetirement = 0,
+    wholeLifeCashValueGrowthRatePct = 0,
+    wholeLifeLoanInterestRatePct = 0,
   } = options;
 
   const projected = projectYearlyPlan(
@@ -338,11 +384,14 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     longTermCareAnnualCost,
     longTermCareStartYear,
     longTermCareInflationRatePct,
+    rothPortfolioPct,
   );
 
   const initialCashTarget = cashBucketTarget(projected, 0, cashBucketYears);
   let cashBalance = Math.min(startingBalance, initialCashTarget);
   let stockBalance = startingBalance - cashBalance;
+  let wholeLifeCashValueBalance = wholeLifeCashValueAtRetirement;
+  let wholeLifeLoanBalance = 0;
 
   const rows: WithdrawalYearResult[] = [];
   let depletedAtYear: number | null = null;
@@ -377,33 +426,74 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     let rmdApplied = false;
     if (rmdStartYear !== undefined && rmdStartAge !== undefined && yearIndex >= rmdStartYear) {
       const age = rmdStartAge + (yearIndex - rmdStartYear);
-      const rmdAmount = beginningBalance / rmdDivisorForAge(age);
+      // Roth IRAs/401ks are exempt from RMDs for the original owner — only
+      // the non-Roth share of the balance is RMD-eligible (same proportional
+      // assumption used for the withdrawal's tax treatment above).
+      const rmdEligibleBalance = beginningBalance * (1 - rothPortfolioPct);
+      const rmdAmount = rmdEligibleBalance / rmdDivisorForAge(age);
       if (rmdAmount > grossWithdrawal) {
         grossWithdrawal = rmdAmount;
-        taxOwed = computeCombinedTaxOwed(grossWithdrawal, yearStandardDeduction, taxRatePct, taxableFixedIncome);
+        taxOwed = computeCombinedTaxOwed(
+          grossWithdrawal,
+          yearStandardDeduction,
+          taxRatePct,
+          taxableFixedIncome,
+          rothPortfolioPct,
+        );
         rmdApplied = true;
       }
     }
 
-    // Draw from cash first; any shortfall is a forced stock sale.
+    const returnApplied = returns[i];
+
+    // Draw from cash first. If a shortfall remains in a DOWN year, borrow
+    // against the whole life cash value instead of selling stock at a loss
+    // (capped at available capacity — cash value minus any already-
+    // outstanding loan). Any further shortfall is a forced stock sale.
     const fromCash = Math.min(cashBalance, grossWithdrawal);
     cashBalance -= fromCash;
-    const fromStock = Math.min(stockBalance, grossWithdrawal - fromCash);
+    let remainingShortfall = grossWithdrawal - fromCash;
+
+    if (remainingShortfall > 0 && returnApplied < 0) {
+      const availableLoanCapacity = Math.max(0, wholeLifeCashValueBalance - wholeLifeLoanBalance);
+      const loanDraw = Math.min(remainingShortfall, availableLoanCapacity);
+      if (loanDraw > 0) {
+        wholeLifeLoanBalance += loanDraw;
+        remainingShortfall -= loanDraw;
+      }
+    }
+
+    const fromStock = Math.min(stockBalance, remainingShortfall);
     stockBalance -= fromStock;
 
-    const returnApplied = returns[i];
     stockBalance = Math.max(0, stockBalance * (1 + returnApplied - feePct));
     cashBalance = Math.max(0, cashBalance * (1 + cashInterestRatePct));
+    // Cash value grows every year regardless of stock returns or loan
+    // activity — real whole life cash value doesn't lose value from market
+    // movement. Loan interest accrues every year a loan is outstanding.
+    wholeLifeCashValueBalance = wholeLifeCashValueBalance * (1 + wholeLifeCashValueGrowthRatePct);
+    if (wholeLifeLoanBalance > 0) {
+      wholeLifeLoanBalance = wholeLifeLoanBalance * (1 + wholeLifeLoanInterestRatePct);
+    }
 
-    // Refill only after an up year — never sell stocks low just to top off cash.
+    // Only after an up year — never sell stocks low just to repay the loan
+    // or top off cash. Loan repayment goes FIRST: it accrues interest every
+    // year outstanding, unlike the cash bucket, which just sits idle.
     let refilled = false;
-    if (returnApplied > 0 && cashBucketYears > 0) {
-      const target = cashBucketTarget(projected, i + 1, cashBucketYears);
-      const transfer = Math.min(Math.max(0, target - cashBalance), stockBalance);
-      if (transfer > 0) {
-        stockBalance -= transfer;
-        cashBalance += transfer;
-        refilled = true;
+    if (returnApplied > 0) {
+      if (wholeLifeLoanBalance > 0) {
+        const loanRepayment = Math.min(wholeLifeLoanBalance, stockBalance);
+        wholeLifeLoanBalance -= loanRepayment;
+        stockBalance -= loanRepayment;
+      }
+      if (cashBucketYears > 0) {
+        const target = cashBucketTarget(projected, i + 1, cashBucketYears);
+        const transfer = Math.min(Math.max(0, target - cashBalance), stockBalance);
+        if (transfer > 0) {
+          stockBalance -= transfer;
+          cashBalance += transfer;
+          refilled = true;
+        }
       }
     }
 
@@ -425,6 +515,8 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
       reverseMortgageIncome,
       longTermCareCost,
       rmdApplied,
+      wholeLifeCashValueBalance,
+      wholeLifeLoanBalance,
     });
 
     if (endingBalance <= 0) {
@@ -483,6 +575,12 @@ export interface RunMonteCarloDistributionOptions {
   preRetirementAnnualContribution?: number;
   /** Years per resampled block (default 5) — see sampleBlockBootstrapReturns. */
   blockLengthYears?: number;
+  /** Fraction (0-1) of the portfolio that's a Roth IRA/401k — see RunWithdrawalTrackOptions. */
+  rothPortfolioPct?: number;
+  /** Whole life policy cash value at Stop-Working Age — see RunWithdrawalTrackOptions. */
+  wholeLifeCashValueAtRetirement?: number;
+  wholeLifeCashValueGrowthRatePct?: number;
+  wholeLifeLoanInterestRatePct?: number;
 }
 
 const DEFAULT_BLOCK_LENGTH_YEARS = 5;
@@ -566,6 +664,10 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
     preRetirementStartingBalance = 0,
     preRetirementAnnualContribution = 0,
     blockLengthYears = DEFAULT_BLOCK_LENGTH_YEARS,
+    rothPortfolioPct = 0,
+    wholeLifeCashValueAtRetirement = 0,
+    wholeLifeCashValueGrowthRatePct = 0,
+    wholeLifeLoanInterestRatePct = 0,
   } = options;
 
   const results: (WithdrawalTrackResult & { preRetirementRows?: PreRetirementYearResult[] })[] = [];
@@ -626,6 +728,10 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
         longTermCareInflationRatePct,
         rmdStartYear,
         rmdStartAge,
+        rothPortfolioPct,
+        wholeLifeCashValueAtRetirement,
+        wholeLifeCashValueGrowthRatePct,
+        wholeLifeLoanInterestRatePct,
       }),
       preRetirementRows,
     });
@@ -747,6 +853,10 @@ export function runDistributionComparison(
     preRetirementAnnualContribution,
     historicalDataStartYear,
     blockLengthYears,
+    rothPortfolioPct,
+    wholeLifeCashValueAtRetirement,
+    wholeLifeCashValueGrowthRatePct,
+    wholeLifeLoanInterestRatePct,
   } = distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
   const effectiveHistoricalDataStartYear = Math.max(SP500_DATA_MIN_YEAR, historicalDataStartYear);
@@ -802,6 +912,10 @@ export function runDistributionComparison(
     preRetirementStartingBalance: currentBalance,
     preRetirementAnnualContribution,
     blockLengthYears,
+    rothPortfolioPct,
+    wholeLifeCashValueAtRetirement,
+    wholeLifeCashValueGrowthRatePct,
+    wholeLifeLoanInterestRatePct,
   });
 
   return {
@@ -853,6 +967,10 @@ export function validateDistributionInputs(
     preRetirementAnnualContribution,
     historicalDataStartYear,
     blockLengthYears,
+    rothPortfolioPct,
+    wholeLifeCashValueAtRetirement,
+    wholeLifeCashValueGrowthRatePct,
+    wholeLifeLoanInterestRatePct,
   } = inputs;
 
   if (
@@ -874,6 +992,47 @@ export function validateDistributionInputs(
     errors.push({
       field: 'blockLengthYears',
       message: 'Block length must be between 1 and 20 years.',
+    });
+  }
+
+  if (
+    rothPortfolioPct !== undefined &&
+    (Number.isNaN(rothPortfolioPct) || rothPortfolioPct < 0 || rothPortfolioPct > 1)
+  ) {
+    errors.push({
+      field: 'rothPortfolioPct',
+      message: 'Roth percentage must be between 0% and 100%.',
+    });
+  }
+
+  if (wholeLifeCashValueAtRetirement !== undefined && wholeLifeCashValueAtRetirement < 0) {
+    errors.push({
+      field: 'wholeLifeCashValueAtRetirement',
+      message: 'Whole life cash value cannot be negative.',
+    });
+  }
+
+  if (
+    wholeLifeCashValueGrowthRatePct !== undefined &&
+    (Number.isNaN(wholeLifeCashValueGrowthRatePct) ||
+      wholeLifeCashValueGrowthRatePct < 0 ||
+      wholeLifeCashValueGrowthRatePct > 0.15)
+  ) {
+    errors.push({
+      field: 'wholeLifeCashValueGrowthRatePct',
+      message: 'Whole life cash value growth rate must be between 0% and 15%.',
+    });
+  }
+
+  if (
+    wholeLifeLoanInterestRatePct !== undefined &&
+    (Number.isNaN(wholeLifeLoanInterestRatePct) ||
+      wholeLifeLoanInterestRatePct < 0 ||
+      wholeLifeLoanInterestRatePct > 0.15)
+  ) {
+    errors.push({
+      field: 'wholeLifeLoanInterestRatePct',
+      message: 'Whole life loan interest rate must be between 0% and 15%.',
     });
   }
 

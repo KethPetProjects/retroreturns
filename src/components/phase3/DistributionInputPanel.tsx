@@ -135,6 +135,18 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
           />
         </Field>
 
+        <Field label="Roth Percentage (%)" error={fieldError(validationErrors, 'rothPortfolioPct')}>
+          <NumberField
+            className="input"
+            min={0}
+            max={100}
+            step={5}
+            decimal
+            value={inputs.rothPortfolioPct * 100}
+            onChange={(v) => update('rothPortfolioPct', v / 100)}
+          />
+        </Field>
+
         <Field label="Management Fee (%)" error={fieldError(validationErrors, 'managementFeePct')}>
           <NumberField
             className="input"
@@ -170,6 +182,49 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
             decimal
             value={inputs.cashInterestRatePct * 100}
             onChange={(v) => update('cashInterestRatePct', v / 100)}
+          />
+        </Field>
+
+        <Field
+          label="Whole Life Cash Value at Retirement ($)"
+          error={fieldError(validationErrors, 'wholeLifeCashValueAtRetirement')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            step={10000}
+            value={inputs.wholeLifeCashValueAtRetirement}
+            onChange={(v) => update('wholeLifeCashValueAtRetirement', v)}
+          />
+        </Field>
+
+        <Field
+          label="Whole Life Cash Value Growth Rate (%)"
+          error={fieldError(validationErrors, 'wholeLifeCashValueGrowthRatePct')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            max={15}
+            step={0.25}
+            decimal
+            value={inputs.wholeLifeCashValueGrowthRatePct * 100}
+            onChange={(v) => update('wholeLifeCashValueGrowthRatePct', v / 100)}
+          />
+        </Field>
+
+        <Field
+          label="Whole Life Loan Interest Rate (%)"
+          error={fieldError(validationErrors, 'wholeLifeLoanInterestRatePct')}
+        >
+          <NumberField
+            className="input"
+            min={0}
+            max={15}
+            step={0.25}
+            decimal
+            value={inputs.wholeLifeLoanInterestRatePct * 100}
+            onChange={(v) => update('wholeLifeLoanInterestRatePct', v / 100)}
           />
         </Field>
 
@@ -337,6 +392,23 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         reverse mortgage tenure payment works (no home value, loan balance, or interest accrual
         tracked) — a placeholder pending the same dedicated treatment planned for whole life
         policy loans.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Roth Percentage is the share of your portfolio that's a Roth IRA/401k — tax-free on
+        withdrawal, and excluded from Required Minimum Distributions (Roths aren't subject to
+        RMDs for the original owner). Assumes a proportional draw from both pots every year, not
+        strategic Traditional-first/Roth-first sequencing. Leave at 0% to treat the whole
+        portfolio as tax-deferred.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Whole Life Cash Value at Retirement is a third tier of defense, used only after the Cash
+        Bucket runs short: in a down year, instead of selling stock at a loss, a shortfall is
+        covered by borrowing against the policy's cash value (capped at whatever's still
+        available). The loan is repaid from stock gains in the next up year — before the Cash
+        Bucket is refilled, since the loan accrues interest every year it's outstanding. The cash
+        value itself is tracked as a separate asset from the stock/cash portfolio and grows every
+        year at its own fixed rate, regardless of market returns. Set to $0 to disable the buffer
+        entirely.
       </p>
       <p className="mt-1 text-xs text-slate-500">
         Long-Term Care Annual Cost adds extra spending on top of Annual Expense starting at Long-Term

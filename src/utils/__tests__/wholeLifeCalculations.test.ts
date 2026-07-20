@@ -1,13 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import {
-  computeWholeLifeIRR,
-  computeBreakEvenYear,
-  runSpComparisonForSchedule,
-  computeOpportunityCost,
-  runWholeLifeComparison,
-} from '../wholeLifeCalculations';
+import { computeWholeLifeIRR, computeBreakEvenYear, runWholeLifeComparison } from '../wholeLifeCalculations';
 import { scaleIllustration, scaleRatioFromFrontLoadedPremium } from '../premiumScaling';
-import { WHOLE_LIFE_ILLUSTRATION, NON_APPUA_PREMIUM } from '../../data/wholeLifeIllustration';
+import { WHOLE_LIFE_ILLUSTRATION } from '../../data/wholeLifeIllustration';
 
 describe('computeWholeLifeIRR (Section 12.4)', () => {
   it('produces a guaranteed IRR in the confirmed 1.3-1.9% ballpark at year 30', () => {
@@ -88,43 +82,10 @@ describe('scaleIllustration (Section 12.11)', () => {
   });
 });
 
-describe('runSpComparisonForSchedule', () => {
-  it('runs the 7-pay schedule through the S&P engine and truncates gracefully near the data boundary', () => {
-    const premiums = WHOLE_LIFE_ILLUSTRATION.map((r) => r.premium); // 55 years
-    const result = runSpComparisonForSchedule(1990, premiums); // 1990 + 55 = 2045, past 2025 data
-    expect(result.truncated).toBe(true);
-    expect(result.years.length).toBeLessThan(55);
-    expect(result.actualBalances.length).toBe(result.years.length);
-  });
-
-  it('does not truncate when the full window fits inside the dataset', () => {
-    const premiums = WHOLE_LIFE_ILLUSTRATION.map((r) => r.premium);
-    const result = runSpComparisonForSchedule(1970, premiums); // 1970 + 55 = 2025, exactly fits
-    expect(result.truncated).toBe(false);
-    expect(result.years.length).toBe(55);
-  });
-});
-
-describe('computeOpportunityCost (Section 12.9)', () => {
-  it('runs the flat non-APPUA premium stream through the S&P engine', () => {
-    const result = computeOpportunityCost(1970, 55);
-    expect(result.years.length).toBe(55);
-    expect(result.actualBalances[result.actualBalances.length - 1]).toBeGreaterThan(0);
-  });
-
-  it('scales proportionally when a scaled non-APPUA premium is passed', () => {
-    const full = computeOpportunityCost(1970, 10, NON_APPUA_PREMIUM);
-    const half = computeOpportunityCost(1970, 10, NON_APPUA_PREMIUM / 2);
-    const lastFull = full.actualBalances[full.actualBalances.length - 1];
-    const lastHalf = half.actualBalances[half.actualBalances.length - 1];
-    expect(lastHalf).toBeCloseTo(lastFull / 2, 4);
-  });
-});
-
-describe('runWholeLifeComparison (integration)', () => {
+describe('runWholeLifeComparison (integration) — pure WL reference facts, decoupled from Phase 1', () => {
   it('keeps IRR stable across the original and a scaled premium', () => {
-    const original = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55, feePct: 0.0003, taxRatePct: 0 });
-    const scaled = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 0.5, comparisonYears: 55, feePct: 0.0003, taxRatePct: 0 });
+    const original = runWholeLifeComparison({ premiumScaleRatio: 1 });
+    const scaled = runWholeLifeComparison({ premiumScaleRatio: 0.5 });
 
     expect(original.isOriginalPremium).toBe(true);
     expect(scaled.isOriginalPremium).toBe(false);
@@ -132,126 +93,32 @@ describe('runWholeLifeComparison (integration)', () => {
     expect(scaled.scaledRows[6].premium).toBeCloseTo(original.scaledRows[6].premium * 0.5, 6);
   });
 
-  it('produces a distinct opportunity-cost result from the main S&P comparison', () => {
-    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55, feePct: 0.0003, taxRatePct: 0 });
-    const finalOppCost = result.opportunityCost.actualBalances.at(-1)!;
-    const finalMainComparison = result.spComparison.actualBalances.at(-1)!;
-    expect(finalOppCost).toBeLessThan(finalMainComparison); // non-APPUA-only stream is a small slice of total premium
+  it('always returns the full 55-year illustration — no truncation window', () => {
+    const result = runWholeLifeComparison({ premiumScaleRatio: 1 });
+    expect(result.scaledRows).toHaveLength(WHOLE_LIFE_ILLUSTRATION.length);
+    expect(result.scaledRows.at(-1)!.year).toBe(WHOLE_LIFE_ILLUSTRATION.length);
   });
 
-  it('limits the chart/S&P comparison to comparisonYears, ignoring later illustration years', () => {
-    const result = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30, feePct: 0.0003, taxRatePct: 0 });
-    expect(result.scaledRows).toHaveLength(30);
-    expect(result.comparisonYears).toBe(30);
-    expect(result.scaledRows.at(-1)!.year).toBe(30);
-  });
-
-  it('clamps comparisonYears to [1, 55]', () => {
-    const tooMany = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 200, feePct: 0.0003, taxRatePct: 0 });
-    expect(tooMany.comparisonYears).toBe(55);
-    const tooFew = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 0, feePct: 0.0003, taxRatePct: 0 });
-    expect(tooFew.comparisonYears).toBe(1);
-  });
-
-  it('keeps IRR and break-even describing the full 55-year policy regardless of comparisonYears (Bug A regression)', () => {
-    // Before this fix, IRR/break-even were computed on the truncated comparisonYears
-    // window, which produced nonsensical rates at low year counts (e.g. negative IRR
-    // at comparisonYears=1) that contradicted the doc's confirmed ~1.3-1.8%/4.8-5.0%
-    // figures. IRR and break-even should be stable no matter how much of the
-    // illustration this particular comparison window is showing.
-    const full = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 55, feePct: 0.0003, taxRatePct: 0 });
-    const oneYear = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 1, feePct: 0.0003, taxRatePct: 0 });
-    const sixYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 6, feePct: 0.0003, taxRatePct: 0 });
-    const thirtyYears = runWholeLifeComparison({ spStartingYear: 1970, premiumScaleRatio: 1, comparisonYears: 30, feePct: 0.0003, taxRatePct: 0 });
-
-    for (const result of [oneYear, sixYears, thirtyYears]) {
-      expect(result.guaranteedIrr).toBeCloseTo(full.guaranteedIrr!, 10);
-      expect(result.nonGuaranteedIrr).toBeCloseTo(full.nonGuaranteedIrr!, 10);
-      expect(result.guaranteedBreakEvenYear).toBe(full.guaranteedBreakEvenYear);
-      expect(result.nonGuaranteedBreakEvenYear).toBe(full.nonGuaranteedBreakEvenYear);
-    }
-
-    // and still lands in the doc's confirmed ballpark, even at comparisonYears=1
-    expect(oneYear.nonGuaranteedIrr!).toBeGreaterThan(0.04);
-    expect(oneYear.nonGuaranteedIrr!).toBeLessThan(0.055);
-  });
-
-  it('applies the caller-supplied feePct to the S&P side, not a hardcoded baseline', () => {
-    // Bug: the S&P comparison used to silently default to BASELINE_FEE_PCT
-    // regardless of what fee the caller actually wanted, so a user testing a
-    // higher fee in Phase 1 would see Phase 1's numbers reflect it while the
-    // WL comparison's S&P side quietly stayed at the low-cost baseline —
-    // breaking the "same funding schedule, apples-to-apples" comparison
-    // (Section 12.5) the moment the fee input diverged from 0.03%.
-    const lowFee = runWholeLifeComparison({
-      spStartingYear: 1970,
-      premiumScaleRatio: 1,
-      comparisonYears: 30,
-      feePct: 0.0003,
-      taxRatePct: 0,
-    });
-    const highFee = runWholeLifeComparison({
-      spStartingYear: 1970,
-      premiumScaleRatio: 1,
-      comparisonYears: 30,
-      feePct: 0.01,
-      taxRatePct: 0,
-    });
-
-    expect(highFee.spComparison.actualBalances.at(-1)!).toBeLessThan(
-      lowFee.spComparison.actualBalances.at(-1)!,
+  it('IRR and break-even describe the full 55-year policy, matching the raw illustration directly', () => {
+    const result = runWholeLifeComparison({ premiumScaleRatio: 1 });
+    expect(result.guaranteedIrr).toBeCloseTo(
+      computeWholeLifeIRR(WHOLE_LIFE_ILLUSTRATION, WHOLE_LIFE_ILLUSTRATION.length, 'guaranteed')!,
+      10,
     );
-    expect(highFee.opportunityCost.actualBalances.at(-1)!).toBeLessThan(
-      lowFee.opportunityCost.actualBalances.at(-1)!,
+    expect(result.nonGuaranteedIrr).toBeCloseTo(
+      computeWholeLifeIRR(WHOLE_LIFE_ILLUSTRATION, WHOLE_LIFE_ILLUSTRATION.length, 'nonGuaranteed')!,
+      10,
     );
-    // WL cash value itself is unaffected by the S&P-side fee input — it's real illustrated data
-    expect(highFee.scaledRows.at(-1)!.nonGuaranteedCashValue).toBe(
-      lowFee.scaledRows.at(-1)!.nonGuaranteedCashValue,
+    expect(result.guaranteedBreakEvenYear).toBe(computeBreakEvenYear(WHOLE_LIFE_ILLUSTRATION, 'guaranteed'));
+    expect(result.nonGuaranteedBreakEvenYear).toBe(
+      computeBreakEvenYear(WHOLE_LIFE_ILLUSTRATION, 'nonGuaranteed'),
     );
   });
 
-  it('applies tax only to the S&P side, leaving WL cash value untaxed (loan vs. lump-sum-withdrawal asymmetry)', () => {
-    const noTax = runWholeLifeComparison({
-      spStartingYear: 1970,
-      premiumScaleRatio: 1,
-      comparisonYears: 30,
-      feePct: 0.0003,
-      taxRatePct: 0,
-    });
-    const withTax = runWholeLifeComparison({
-      spStartingYear: 1970,
-      premiumScaleRatio: 1,
-      comparisonYears: 30,
-      feePct: 0.0003,
-      taxRatePct: 0.2,
-    });
-
-    // S&P side: after-tax final values reflect the 20% haircut exactly
-    expect(withTax.finalSpActualAfterTax).toBeCloseTo(
-      noTax.spComparison.actualBalances.at(-1)! * 0.8,
-      4,
-    );
-    expect(withTax.finalSpAverageAfterTax).toBeCloseTo(
-      noTax.spComparison.averageBalances.at(-1)! * 0.8,
-      4,
-    );
-    expect(withTax.finalOpportunityCostActualAfterTax).toBeCloseTo(
-      noTax.opportunityCost.actualBalances.at(-1)! * 0.8,
-      4,
-    );
-
-    // The pre-tax arrays themselves are untouched by taxRatePct (chart stays pre-tax, same as Phase 1)
-    expect(withTax.spComparison.actualBalances.at(-1)!).toBeCloseTo(
-      noTax.spComparison.actualBalances.at(-1)!,
-      4,
-    );
-
-    // WL cash value is never taxed, regardless of taxRatePct (policy loans are typically tax-free)
-    expect(withTax.scaledRows.at(-1)!.nonGuaranteedCashValue).toBe(
-      noTax.scaledRows.at(-1)!.nonGuaranteedCashValue,
-    );
-    expect(withTax.scaledRows.at(-1)!.guaranteedCashValue).toBe(
-      noTax.scaledRows.at(-1)!.guaranteedCashValue,
-    );
+  it('has no S&P comparison or opportunity-cost fields — WL facts only', () => {
+    const result = runWholeLifeComparison({ premiumScaleRatio: 1 });
+    expect(result).not.toHaveProperty('spComparison');
+    expect(result).not.toHaveProperty('opportunityCost');
+    expect(result).not.toHaveProperty('finalSpActualAfterTax');
   });
 });

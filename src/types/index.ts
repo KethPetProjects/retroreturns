@@ -138,4 +138,33 @@ export interface DistributionInputs {
    * opposite. Defaults to 7 years.
    */
   blockLengthYears: number;
+  /**
+   * Fraction (0-1) of the portfolio that's a Roth IRA/401k — tax-free on
+   * withdrawal, and excluded from Required Minimum Distributions (Roths
+   * aren't subject to RMDs for the original owner). Assumes a proportional
+   * draw from both pots every year, not strategic Traditional-first/
+   * Roth-first sequencing. 0 (the default) treats the whole portfolio as
+   * tax-deferred, matching the tool's existing 401(k)-style framing.
+   */
+  rothPortfolioPct: number;
+  /**
+   * Cash value of a whole life insurance policy at retirement ($), used as a
+   * third-tier buffer asset (after the cash bucket) during down years — see
+   * 13.13. Modeled as a separate asset from the stock/cash portfolio, not
+   * folded into the starting balance. 0 (the default) disables the buffer
+   * entirely, matching prior behavior.
+   */
+  wholeLifeCashValueAtRetirement: number;
+  /**
+   * Annual growth rate (0-1) applied to the whole life cash value every
+   * year, regardless of stock market returns (13.13). Defaults to 4.5%.
+   */
+  wholeLifeCashValueGrowthRatePct: number;
+  /**
+   * Annual interest rate (0-1) charged on an outstanding whole life policy
+   * loan (13.13). Loans are drawn from the cash value in down years once
+   * the cash bucket is exhausted, and repaid from stock gains in up years
+   * before the cash bucket is refilled. Defaults to 6%.
+   */
+  wholeLifeLoanInterestRatePct: number;
 }

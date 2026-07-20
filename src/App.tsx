@@ -8,9 +8,7 @@ import { DataSourceBanner } from './components/DataSourceBanner';
 import { TabBar } from './components/TabBar';
 import { WholeLifeInputPanel } from './components/phase2/WholeLifeInputPanel';
 import { PremiumScaleWarning } from './components/phase2/PremiumScaleWarning';
-import { ComparisonChart } from './components/phase2/ComparisonChart';
 import { WholeLifeSummary } from './components/phase2/WholeLifeSummary';
-import { OpportunityCostCallout } from './components/phase2/OpportunityCostCallout';
 import { CaveatsPanel } from './components/phase2/CaveatsPanel';
 import { DistributionInputPanel } from './components/phase3/DistributionInputPanel';
 import { DistributionChart } from './components/phase3/DistributionChart';
@@ -20,10 +18,9 @@ import { useHistoricalReturns } from './hooks/useHistoricalReturns';
 import { useSimulation } from './hooks/useSimulation';
 import { useWholeLifeComparison } from './hooks/useWholeLifeComparison';
 import { useDistribution } from './hooks/useDistribution';
-import { ORIGINAL_FRONT_LOADED_PREMIUM, NON_APPUA_PREMIUM } from './data/wholeLifeIllustration';
+import { ORIGINAL_FRONT_LOADED_PREMIUM } from './data/wholeLifeIllustration';
 import { scaleRatioFromFrontLoadedPremium } from './utils/premiumScaling';
 import { getActualBalanceAtRetirement } from './utils/distributionCalculations';
-import { SP500_DATA_MIN_YEAR } from './data/sp500Fallback';
 import type { SimulationInputs, DistributionInputs } from './types';
 
 const currentYear = new Date().getFullYear();
@@ -38,18 +35,18 @@ const DEFAULT_INPUTS: SimulationInputs = {
 };
 
 const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
-  currentAge: 35,
+  currentAge: 52,
   stopWorkingAge: 65,
   planThroughAge: 95,
-  annualExpense: 80000,
+  annualExpense: 150000,
   inflationRatePct: 0.03,
-  standardDeduction: 15000,
-  federalTaxRatePct: 0.15,
+  standardDeduction: 40000,
+  federalTaxRatePct: 0.25,
   stateTaxRatePct: 0.05,
   managementFeePct: 0.0003,
   cashBucketYears: 2,
   cashInterestRatePct: 0.025,
-  socialSecurityAnnualBenefit: 0,
+  socialSecurityAnnualBenefit: 24000,
   socialSecurityClaimingAge: 67,
   socialSecurityTaxablePortionPct: 0.85,
   otherAnnualIncome: 0,
@@ -58,10 +55,14 @@ const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
   longTermCareStartAge: 80,
   longTermCareInflationRatePct: 0.05,
   startingBalanceOverride: 0,
-  currentBalance: 0,
+  currentBalance: 500000,
   preRetirementAnnualContribution: 10000,
-  historicalDataStartYear: SP500_DATA_MIN_YEAR,
+  historicalDataStartYear: 1960,
   blockLengthYears: 7,
+  rothPortfolioPct: 0.35,
+  wholeLifeCashValueAtRetirement: 0,
+  wholeLifeCashValueGrowthRatePct: 0.045,
+  wholeLifeLoanInterestRatePct: 0.06,
 };
 
 function App() {
@@ -72,17 +73,10 @@ function App() {
 
   const [frontLoadedPremium, setFrontLoadedPremium] = useState(ORIGINAL_FRONT_LOADED_PREMIUM);
   const premiumScaleRatio = scaleRatioFromFrontLoadedPremium(frontLoadedPremium);
-  // Locked to Phase 1's own Starting Year — the WL comparison's S&P side must
-  // use the same real market history the user chose for the Accumulation
-  // section, not an independently-set year (see App.tsx history for the
-  // earlier, confusing two-starting-years version).
-  const { result: wlResult } = useWholeLifeComparison({
-    spStartingYear: inputs.startingYear,
-    premiumScaleRatio,
-    comparisonYears: inputs.numberOfYears,
-    feePct: inputs.managementFeePct,
-    taxRatePct: inputs.taxRatePct,
-  });
+  // Deliberately decoupled from Phase 1's Starting Year — the WL side is now
+  // pure reference-illustration facts (real, age-indexed data), not an S&P
+  // comparison. Phase 1's top table already owns "explore S&P growth rates."
+  const { result: wlResult } = useWholeLifeComparison({ premiumScaleRatio });
 
   const [distributionInputs, setDistributionInputs] = useState<DistributionInputs>(DEFAULT_DISTRIBUTION_INPUTS);
   // Carries over Phase 1's PRE-TAX balance (actualBalance, not finalActualValue —
@@ -187,22 +181,12 @@ function App() {
 
             <WholeLifeInputPanel
               frontLoadedPremium={frontLoadedPremium}
-              spStartingYear={inputs.startingYear}
               onFrontLoadedPremiumChange={setFrontLoadedPremium}
-              spDataTruncated={wlResult.spComparison.truncated}
-              spYearsAvailable={wlResult.spComparison.years.length}
-              comparisonYears={wlResult.comparisonYears}
-              spFeePct={inputs.managementFeePct}
             />
 
             {!wlResult.isOriginalPremium && <PremiumScaleWarning />}
 
-            <ComparisonChart result={wlResult} />
             <WholeLifeSummary result={wlResult} />
-            <OpportunityCostCallout
-              result={wlResult}
-              nonAppuaPremiumPerYear={NON_APPUA_PREMIUM * premiumScaleRatio}
-            />
             <CaveatsPanel />
           </>
         )}
