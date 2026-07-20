@@ -12,8 +12,10 @@ import {
   rmdDivisorForAge,
   rmdStartAgeForBirthYear,
   sampleBlockBootstrapReturns,
+  historicalReturnPoolFromYear,
   HISTORICAL_TOTAL_RETURN_POOL,
 } from '../distributionCalculations';
+import { SP500_DATA_MIN_YEAR, SP500_DATA_MAX_YEAR } from '../../data/sp500Fallback';
 import type { SimulationYearRow } from '../../types';
 
 function makeRows(actualBalances: number[]): SimulationYearRow[] {
@@ -221,6 +223,25 @@ describe('sampleBlockBootstrapReturns', () => {
     // stay well short of independent-sampling's observed ~24% max, even if
     // it doesn't fully match the tighter real-history bound.
     expect(maxCagr).toBeLessThan(0.21);
+  });
+});
+
+describe('historicalReturnPoolFromYear', () => {
+  it('returns the full pool when given the dataset\'s earliest year', () => {
+    const pool = historicalReturnPoolFromYear(SP500_DATA_MIN_YEAR);
+    expect(pool).toHaveLength(HISTORICAL_TOTAL_RETURN_POOL.length);
+  });
+
+  it('excludes years before the given start year', () => {
+    const fullPool = historicalReturnPoolFromYear(SP500_DATA_MIN_YEAR);
+    const restrictedPool = historicalReturnPoolFromYear(1960);
+    expect(restrictedPool.length).toBeLessThan(fullPool.length);
+    expect(restrictedPool.length).toBe(SP500_DATA_MAX_YEAR - 1960 + 1);
+  });
+
+  it('includes the boundary start year itself', () => {
+    const poolFrom2020 = historicalReturnPoolFromYear(2020);
+    expect(poolFrom2020.length).toBe(SP500_DATA_MAX_YEAR - 2020 + 1);
   });
 });
 
@@ -887,6 +908,7 @@ describe('runDistributionComparison (integration)', () => {
         startingBalanceOverride: 0,
         currentBalance: 0,
         preRetirementAnnualContribution: 0,
+        historicalDataStartYear: SP500_DATA_MIN_YEAR,
       },
       monteCarloTrials: 100,
       randomFn: seededRandom(1),
@@ -921,6 +943,7 @@ describe('runDistributionComparison (integration)', () => {
       startingBalanceOverride: 0,
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
     };
     const lowActualStart = runDistributionComparison({
       startingBalanceActual: 10000, // one year's expense wipes this out almost regardless of return
@@ -957,6 +980,7 @@ describe('runDistributionComparison (integration)', () => {
       startingBalanceOverride: 0,
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
     };
     const withSS = runDistributionComparison({
       startingBalanceActual: 1_500_000,
@@ -999,6 +1023,7 @@ describe('runDistributionComparison (integration)', () => {
       startingBalanceOverride: 0,
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 3_000_000,
@@ -1038,6 +1063,7 @@ describe('runDistributionComparison (integration)', () => {
       startingBalanceOverride: 0,
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
     };
 
     const bornBefore1960 = runDistributionComparison({
@@ -1083,6 +1109,7 @@ describe('runDistributionComparison (integration)', () => {
       startingBalanceOverride: 0,
       currentBalance: 0,
       preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 8_000_000,
@@ -1119,6 +1146,7 @@ describe('runDistributionComparison (integration)', () => {
       startingBalanceOverride: 0,
       currentBalance: 150000,
       preRetirementAnnualContribution: 15000,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
     };
     // A trivially small startingBalanceActual would fail almost every trial
     // if it were actually used — proves lifecycle mode ignored it entirely
@@ -1157,6 +1185,7 @@ describe('runDistributionComparison (integration)', () => {
       startingBalanceOverride: 5_000_000, // would dominate if it were used
       currentBalance: 100000,
       preRetirementAnnualContribution: 10000,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR,
     };
     const result = runDistributionComparison({
       startingBalanceActual: 5_000_000, // matches the override, to isolate which one actually won
@@ -1168,6 +1197,77 @@ describe('runDistributionComparison (integration)', () => {
     // near 5,000,000 — confirms currentBalance (lifecycle), not the override
     // or startingBalanceActual, determined the outcome.
     expect(result.monteCarlo.medianTrialRows[0].beginningBalance).toBeLessThan(1_000_000);
+  });
+
+  it('restricts the return pool to historicalDataStartYear and reports the effective range used', () => {
+    const distributionInputs = {
+      currentAge: 40,
+      stopWorkingAge: 65,
+      planThroughAge: 95,
+      annualExpense: 80000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 67,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
+      historicalDataStartYear: 1960,
+    };
+    const result = runDistributionComparison({
+      startingBalanceActual: 1_500_000,
+      distributionInputs,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(15),
+    });
+    expect(result.historicalDataStartYear).toBe(1960);
+    expect(result.historicalDataEndYear).toBe(SP500_DATA_MAX_YEAR);
+  });
+
+  it('clamps historicalDataStartYear below the dataset minimum up to the actual earliest year', () => {
+    const distributionInputs = {
+      currentAge: 40,
+      stopWorkingAge: 65,
+      planThroughAge: 95,
+      annualExpense: 80000,
+      inflationRatePct: 0.03,
+      standardDeduction: 15000,
+      federalTaxRatePct: 0.15,
+      stateTaxRatePct: 0.05,
+      managementFeePct: 0.0003,
+      cashBucketYears: 0,
+      cashInterestRatePct: 0,
+      socialSecurityAnnualBenefit: 0,
+      socialSecurityClaimingAge: 67,
+      socialSecurityTaxablePortionPct: 0.85,
+      otherAnnualIncome: 0,
+      reverseMortgageAnnualIncome: 0,
+      longTermCareAnnualCost: 0,
+      longTermCareStartAge: 80,
+      longTermCareInflationRatePct: 0.05,
+      startingBalanceOverride: 0,
+      currentBalance: 0,
+      preRetirementAnnualContribution: 0,
+      historicalDataStartYear: SP500_DATA_MIN_YEAR - 50,
+    };
+    const result = runDistributionComparison({
+      startingBalanceActual: 1_500_000,
+      distributionInputs,
+      monteCarloTrials: 30,
+      randomFn: seededRandom(16),
+    });
+    expect(result.historicalDataStartYear).toBe(SP500_DATA_MIN_YEAR);
   });
 });
 
@@ -1466,5 +1566,59 @@ describe('validateDistributionInputs (Section 13.2)', () => {
       phase1,
     );
     expect(errors.some((e) => e.field === 'stopWorkingAge')).toBe(false);
+  });
+
+  it('flags a historicalDataStartYear that leaves too few years of real data to sample from', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        historicalDataStartYear: SP500_DATA_MAX_YEAR - 2, // leaves only 3 years
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'historicalDataStartYear')).toBe(true);
+  });
+
+  it('flags a historicalDataStartYear before the dataset actually starts', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        historicalDataStartYear: SP500_DATA_MIN_YEAR - 10,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'historicalDataStartYear')).toBe(true);
+  });
+
+  it('allows a reasonable historicalDataStartYear like 1960', () => {
+    const errors = validateDistributionInputs(
+      {
+        currentAge: 35,
+        stopWorkingAge: 64,
+        planThroughAge: 95,
+        annualExpense: 80000,
+        standardDeduction: 15000,
+        federalTaxRatePct: 0.15,
+        stateTaxRatePct: 0.05,
+        managementFeePct: 0.0003,
+        historicalDataStartYear: 1960,
+      },
+      phase1,
+    );
+    expect(errors.some((e) => e.field === 'historicalDataStartYear')).toBe(false);
   });
 });

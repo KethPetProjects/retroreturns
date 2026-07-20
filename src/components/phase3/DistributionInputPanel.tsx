@@ -1,4 +1,5 @@
 import { NumberField } from '../NumberField';
+import { SP500_DATA_MIN_YEAR, SP500_DATA_MAX_YEAR } from '../../data/sp500Fallback';
 import type { DistributionInputs } from '../../types';
 import type { DistributionValidationError } from '../../utils/distributionCalculations';
 
@@ -273,6 +274,19 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
             onChange={(v) => update('longTermCareInflationRatePct', v / 100)}
           />
         </Field>
+
+        <Field
+          label="Historical Data Start Year"
+          error={fieldError(validationErrors, 'historicalDataStartYear')}
+        >
+          <NumberField
+            className="input"
+            min={SP500_DATA_MIN_YEAR}
+            max={SP500_DATA_MAX_YEAR - 9}
+            value={inputs.historicalDataStartYear}
+            onChange={(v) => update('historicalDataStartYear', v)}
+          />
+        </Field>
       </div>
       <p className="mt-3 text-xs text-slate-500">
         Three ways to set Distribution's starting balance, in priority order. <strong>Current
@@ -328,6 +342,14 @@ export function DistributionInputPanel({ inputs, onChange, validationErrors }: D
         to the IRS-required minimum whenever that's larger than what the expense/LTC plan alone would
         withdraw. Assumes the whole portfolio is a tax-deferred account, matching this tool's
         401(k)-style framing.
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        Historical Data Start Year restricts the simulation to real market years on or after this
+        year — e.g. set to 1960 to exclude the 1928–1958 era's unusually wide single-year swings
+        (several real years above +40%, balanced by real crashes like 1931's −43%). Every sampled
+        return is still real, unaltered historical data; this only changes which real years are
+        eligible to be drawn, not the values themselves. Leave at the earliest available year to use
+        the full dataset.
       </p>
     </section>
   );

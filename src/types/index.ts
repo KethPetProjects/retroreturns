@@ -119,4 +119,13 @@ export interface DistributionInputs {
   currentBalance: number;
   /** Flat nominal annual contribution from Current Age until Stop-Working Age (does not inflate, matching Phase 1's convention). Only relevant when currentBalance > 0. */
   preRetirementAnnualContribution: number;
+  /**
+   * Restricts the Monte Carlo return pool to real historical years >= this
+   * year (e.g. 1960 excludes the 1928-1958 era's outlier single-year swings
+   * — several real years above +40%, balanced by real crashes like 1931's
+   * -43%). Every sampled value is still real, unaltered historical data —
+   * this changes WHICH years feed the simulation, not the values
+   * themselves. Defaults to the dataset's earliest year (no restriction).
+   */
+  historicalDataStartYear: number;
 }

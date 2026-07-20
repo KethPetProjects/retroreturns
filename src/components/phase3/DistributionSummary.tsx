@@ -34,7 +34,7 @@ export function DistributionSummary({
   planThroughAge,
   startingBalanceSource,
 }: DistributionSummaryProps) {
-  const { years, monteCarlo, rmdStartAge } = result;
+  const { years, monteCarlo, rmdStartAge, historicalDataStartYear, historicalDataEndYear } = result;
   const startingBalance = monteCarlo.medianTrialRows[0]?.beginningBalance;
 
   return (
@@ -51,7 +51,7 @@ export function DistributionSummary({
         <Metric
           label="Monte Carlo Success Rate"
           value={formatPercent(monteCarlo.successRatePct, 1)}
-          hint={`${monteCarlo.trials.toLocaleString()} trials, each randomly resampling real historical annual returns`}
+          hint={`${monteCarlo.trials.toLocaleString()} trials, resampling real historical annual returns from ${historicalDataStartYear}–${historicalDataEndYear}`}
         />
         <Metric
           label="Median Outcome"

@@ -23,6 +23,7 @@ import { useDistribution } from './hooks/useDistribution';
 import { ORIGINAL_FRONT_LOADED_PREMIUM, NON_APPUA_PREMIUM } from './data/wholeLifeIllustration';
 import { scaleRatioFromFrontLoadedPremium } from './utils/premiumScaling';
 import { getActualBalanceAtRetirement } from './utils/distributionCalculations';
+import { SP500_DATA_MIN_YEAR } from './data/sp500Fallback';
 import type { SimulationInputs, DistributionInputs } from './types';
 
 const currentYear = new Date().getFullYear();
@@ -59,6 +60,7 @@ const DEFAULT_DISTRIBUTION_INPUTS: DistributionInputs = {
   startingBalanceOverride: 0,
   currentBalance: 0,
   preRetirementAnnualContribution: 10000,
+  historicalDataStartYear: SP500_DATA_MIN_YEAR,
 };
 
 function App() {

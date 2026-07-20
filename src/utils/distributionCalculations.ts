@@ -1,4 +1,4 @@
-import { SP500_FALLBACK_DATA } from '../data/sp500Fallback';
+import { SP500_FALLBACK_DATA, SP500_DATA_MIN_YEAR, SP500_DATA_MAX_YEAR } from '../data/sp500Fallback';
 import type { DistributionInputs, SimulationYearRow } from '../types';
 
 /**
@@ -671,6 +671,18 @@ export function runMonteCarloDistribution(options: RunMonteCarloDistributionOpti
 
 export const HISTORICAL_TOTAL_RETURN_POOL = SP500_FALLBACK_DATA.map((r) => r.totalReturn);
 
+/**
+ * Restricts the return pool to years >= fromYear — e.g. excluding the
+ * 1928-1958 era's outlier single-year swings (five real years above +40%,
+ * balanced by real crash years like 1931's -43%) if the user wants the
+ * simulation to reflect a more recent slice of market history instead.
+ * Every returned value is still real, unaltered historical data — this
+ * changes WHICH real years feed the simulation, not the values themselves.
+ */
+export function historicalReturnPoolFromYear(fromYear: number): number[] {
+  return SP500_FALLBACK_DATA.filter((r) => r.year >= fromYear).map((r) => r.totalReturn);
+}
+
 const DEFAULT_MONTE_CARLO_TRIALS = 1000;
 
 export interface DistributionComparisonInputs {
@@ -688,6 +700,9 @@ export interface DistributionComparisonResult {
   monteCarlo: MonteCarloResult;
   /** Age Required Minimum Distributions start (73 or 75, derived from Current Age via SECURE 2.0's birth-year rule) — RMDs are always modeled, assuming the whole portfolio is a tax-deferred account; there's no toggle to disable them. */
   rmdStartAge: number;
+  /** The actual year range the return pool was drawn from, honoring Historical Data Start Year (13.2). endYear is always the dataset's most recent year. */
+  historicalDataStartYear: number;
+  historicalDataEndYear: number;
 }
 
 /**
@@ -730,8 +745,11 @@ export function runDistributionComparison(
     longTermCareInflationRatePct,
     currentBalance,
     preRetirementAnnualContribution,
+    historicalDataStartYear,
   } = distributionInputs;
   const years = Math.max(1, Math.trunc(planThroughAge - stopWorkingAge));
+  const effectiveHistoricalDataStartYear = Math.max(SP500_DATA_MIN_YEAR, historicalDataStartYear);
+  const historicalReturnPool = historicalReturnPoolFromYear(effectiveHistoricalDataStartYear);
   // currentBalance > 0 activates lifecycle mode (13.11) and takes priority
   // over whatever startingBalanceActual the caller passed in — that value
   // was either Starting Balance Override or the Accumulation tab's
@@ -758,7 +776,7 @@ export function runDistributionComparison(
 
   const monteCarlo = runMonteCarloDistribution({
     startingBalance: startingBalanceActual,
-    historicalReturnPool: HISTORICAL_TOTAL_RETURN_POOL,
+    historicalReturnPool,
     years,
     annualExpense,
     inflationRatePct,
@@ -784,7 +802,13 @@ export function runDistributionComparison(
     preRetirementAnnualContribution,
   });
 
-  return { years, monteCarlo, rmdStartAge };
+  return {
+    years,
+    monteCarlo,
+    rmdStartAge,
+    historicalDataStartYear: effectiveHistoricalDataStartYear,
+    historicalDataEndYear: SP500_DATA_MAX_YEAR,
+  };
 }
 
 export interface DistributionValidationError {
@@ -825,7 +849,20 @@ export function validateDistributionInputs(
     startingBalanceOverride,
     currentBalance,
     preRetirementAnnualContribution,
+    historicalDataStartYear,
   } = inputs;
+
+  if (
+    historicalDataStartYear !== undefined &&
+    (Number.isNaN(historicalDataStartYear) ||
+      historicalDataStartYear < SP500_DATA_MIN_YEAR ||
+      historicalDataStartYear > SP500_DATA_MAX_YEAR - 9)
+  ) {
+    errors.push({
+      field: 'historicalDataStartYear',
+      message: `Historical data start year must be between ${SP500_DATA_MIN_YEAR} and ${SP500_DATA_MAX_YEAR - 9}, leaving at least 10 years of real data to sample from.`,
+    });
+  }
 
   if (startingBalanceOverride !== undefined && startingBalanceOverride < 0) {
     errors.push({
