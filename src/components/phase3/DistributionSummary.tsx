@@ -36,6 +36,11 @@ export function DistributionSummary({
 }: DistributionSummaryProps) {
   const { years, monteCarlo, rmdStartAge, historicalDataStartYear, historicalDataEndYear } = result;
   const startingBalance = monteCarlo.medianTrialRows[0]?.beginningBalance;
+  const finalRow = monteCarlo.medianTrialRows[monteCarlo.medianTrialRows.length - 1];
+  const wholeLifeBufferInUse = (finalRow?.wholeLifeCashValueBalance ?? 0) > 0;
+  const wholeLifeNetValue = finalRow
+    ? finalRow.wholeLifeCashValueBalance - finalRow.wholeLifeLoanBalance
+    : 0;
 
   return (
     <section className="card p-4 sm:p-6">
@@ -67,6 +72,17 @@ export function DistributionSummary({
           }
           hint="A bad-case reference point, not the worst simulated trial"
         />
+        {wholeLifeBufferInUse && (
+          <Metric
+            label="Whole Life Value Remaining (Net of Loan)"
+            value={formatDollars(wholeLifeNetValue, false)}
+            hint={
+              monteCarlo.medianDepletionYear === null
+                ? 'Cash value net of any outstanding loan, still held in the policy at the end of the plan — a backstop outside the modeled portfolio, not counted toward the success rate above'
+                : 'Cash value net of any outstanding loan, still held in the policy at depletion — a backstop outside the modeled portfolio, not counted toward the success rate above'
+            }
+          />
+        )}
       </dl>
       <p className="mt-4 text-xs text-slate-500">
         Sequence-of-returns risk in retirement usually cuts the opposite direction from the
