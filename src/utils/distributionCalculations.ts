@@ -482,9 +482,39 @@ export function runWithdrawalTrack(options: RunWithdrawalTrackOptions): Withdraw
     let refilled = false;
     if (returnApplied > 0) {
       if (wholeLifeLoanBalance > 0) {
-        const loanRepayment = Math.min(wholeLifeLoanBalance, stockBalance);
-        wholeLifeLoanBalance -= loanRepayment;
-        stockBalance -= loanRepayment;
+        // Repaying the loan pulls money OUT of this modeled tax-deferred/
+        // Roth portfolio and into the insurer — the whole life cash value is
+        // tracked as a genuinely separate asset, not a sub-account of this
+        // one, so (unlike the same-portfolio cash-bucket refill just below)
+        // this is a real withdrawal and must be grossed up for tax like any
+        // other, sharing whatever standard-deduction headroom this year's
+        // spend withdrawal hasn't already used.
+        const remainingDeduction = Math.max(
+          0,
+          yearStandardDeduction - (grossWithdrawal * (1 - rothPortfolioPct) + taxableFixedIncome),
+        );
+        const grossNeededForFullRepayment = solveGrossWithdrawal(
+          wholeLifeLoanBalance,
+          remainingDeduction,
+          taxRatePct,
+          0,
+          0,
+          rothPortfolioPct,
+        );
+        let loanRepaymentGross: number;
+        let loanRepaymentNet: number;
+        if (grossNeededForFullRepayment <= stockBalance) {
+          loanRepaymentGross = grossNeededForFullRepayment;
+          loanRepaymentNet = wholeLifeLoanBalance;
+        } else {
+          loanRepaymentGross = stockBalance;
+          loanRepaymentNet =
+            stockBalance -
+            computeCombinedTaxOwed(stockBalance, remainingDeduction, taxRatePct, 0, rothPortfolioPct);
+        }
+        wholeLifeLoanBalance -= loanRepaymentNet;
+        stockBalance -= loanRepaymentGross;
+        taxOwed += loanRepaymentGross - loanRepaymentNet;
       }
       if (cashBucketYears > 0) {
         const target = cashBucketTarget(projected, i + 1, cashBucketYears);

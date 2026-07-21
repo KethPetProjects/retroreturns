@@ -832,6 +832,56 @@ describe('runWithdrawalTrack — Whole Life Cash Value loan buffer (Section 13.1
     expect(withBuffer.rows[3].cashBalance).toBeCloseTo(8368.828, 2);
     expect(withBuffer.rows[3].cashBalance).toBeLessThan(withoutBuffer.rows[3].cashBalance);
   });
+
+  it('grosses up the loan repayment for tax, since it draws money out of the modeled portfolio into the insurer', () => {
+    // annualExpense=8,000 with a flat 20% tax rate and no deduction/roth ->
+    // grossWithdrawal = 10,000 exactly (8,000 / 0.8), taxOwed = 2,000.
+    const result = runWithdrawalTrack({
+      startingBalance: 30000,
+      returns: [-0.1, 0.1],
+      annualExpense: 8000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0.2,
+      feePct: 0,
+      wholeLifeCashValueAtRetirement: 50000,
+      wholeLifeCashValueGrowthRatePct: 0.05,
+      wholeLifeLoanInterestRatePct: 0.06,
+    });
+    // Year 1 (down): shortfall covered entirely by the loan -> loan = 10,000,
+    // accruing to 10,600 * 1.06 = 11,236 after year 2's interest.
+    // Year 2 (up): the 10,000 withdrawal comes from stock (27,000 -> 17,000
+    // -> 18,700 after +10%). Repaying the 11,236 loan needs a grossed-up
+    // 14,045 draw (11,236 / 0.8) — affordable out of the 18,700 available.
+    expect(result.rows[1].wholeLifeLoanBalance).toBeCloseTo(0, 4);
+    expect(result.rows[1].stockBalance).toBeCloseTo(4655, 4); // 18,700 - 14,045
+    // Tax owed jumps from the planned 2,000 (spend withdrawal only) to
+    // 4,809 — the extra 2,809 is the loan repayment's own tax (14,045 -
+    // 11,236), proving it's no longer a tax-free internal transfer.
+    expect(result.rows[1].taxOwed).toBeCloseTo(4809, 4);
+  });
+
+  it('caps the grossed-up repayment at available stock when it cannot fully cover the loan, leaving the loan partially outstanding', () => {
+    const result = runWithdrawalTrack({
+      startingBalance: 12000,
+      returns: [-0.1, 0.1],
+      annualExpense: 8000,
+      inflationRatePct: 0,
+      standardDeduction: 0,
+      taxRatePct: 0.2,
+      feePct: 0,
+      wholeLifeCashValueAtRetirement: 50000,
+      wholeLifeCashValueGrowthRatePct: 0.05,
+      wholeLifeLoanInterestRatePct: 0.06,
+    });
+    // Only 880 of stock is available in year 2, nowhere near the 14,045
+    // needed to fully repay the 11,236 loan — so it draws everything it
+    // has (880), nets 704 after tax (880 * 0.8) toward the loan, and 10,532
+    // stays outstanding, still accruing interest next year.
+    expect(result.rows[1].stockBalance).toBeCloseTo(0, 4);
+    expect(result.rows[1].wholeLifeLoanBalance).toBeCloseTo(10532, 4);
+    expect(result.rows[1].taxOwed).toBeCloseTo(2176, 4); // 2,000 planned + 176 on the 880 draw
+  });
 });
 
 describe('runMonteCarloDistribution', () => {
