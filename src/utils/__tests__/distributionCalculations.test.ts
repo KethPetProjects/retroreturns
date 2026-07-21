@@ -690,6 +690,36 @@ describe('runWithdrawalTrack — Required Minimum Distributions (RMD)', () => {
     // RMD-forced amount should be ~half as large when half the balance is Roth-exempt.
     expect(halfRoth.rows[0].grossWithdrawal).toBeCloseTo(noRoth.rows[0].grossWithdrawal * 0.5, 0);
   });
+
+  it('an RMD-forced withdrawal in a down year still draws from the Cash Bucket and WL loan first, never bypassing them to sell stock', () => {
+    // Cash Bucket carves out 2 years of the PLANNED (non-RMD) withdrawal —
+    // 71,250 + 73,387.50 = 144,637.50 — leaving 4,855,362.50 in stock. RMD
+    // then forces the actual withdrawal up to 188,679.25 (5M / 26.5), far
+    // above the plan. In this down year (-15%), the funding waterfall is
+    // identical to a non-RMD year: cash first (144,637.50, fully drained),
+    // then the WL loan for the 44,041.75 shortfall (capacity 500,000) —
+    // stock is NEVER touched by the withdrawal itself, only by the market.
+    const result = runWithdrawalTrack({
+      ...base,
+      returns: [-0.15, ...base.returns.slice(1)],
+      cashBucketYears: 2,
+      cashInterestRatePct: 0,
+      wholeLifeCashValueAtRetirement: 500000,
+      wholeLifeCashValueGrowthRatePct: 0.045,
+      wholeLifeLoanInterestRatePct: 0.06,
+      rmdStartYear: 1,
+      rmdStartAge: 73,
+    });
+    const row = result.rows[0];
+    expect(row.rmdApplied).toBe(true);
+    expect(row.grossWithdrawal).toBeCloseTo(5_000_000 / 26.5, 2);
+    expect(row.cashBalance).toBeCloseTo(0, 4); // Cash Bucket fully drained first
+    expect(row.wholeLifeLoanBalance).toBeCloseTo(44041.745283 * 1.06, 2); // shortfall borrowed + this year's interest
+    // Stock only reflects the -15% market return on what was left after the
+    // Cash Bucket carve-out — (5,000,000 - 144,637.50) * 0.85 — proving the
+    // RMD-forced withdrawal never forced a stock sale in this down year.
+    expect(row.stockBalance).toBeCloseTo((5_000_000 - 144637.5) * 0.85, 2);
+  });
 });
 
 describe('runWithdrawalTrack — Whole Life Cash Value loan buffer (Section 13.13)', () => {
